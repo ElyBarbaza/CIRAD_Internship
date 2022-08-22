@@ -1,0 +1,1318 @@
+---
+title: "Analyse de l'effet des techniques alternatives sur le rendement de la canne à sucre"
+author: BARBAZA Elysé
+output: 
+  word_document:
+    toc: yes
+    toc_depth: '3'
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE, message = FALSE,dpi = 300, results = FALSE)
+```
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+library(tidyverse)
+library(gridExtra)
+library(openxlsx)
+library(nlme) # lme
+library(lme4) # lmer
+library(lmerTest)
+library(cowplot) # plotgrid
+library(lsmeans)
+library(multcomp) # 
+library(effects) # all effects
+library(pbkrtest)
+library(xtable)
+library(texreg) # tables for lmer model
+library(languageR)
+library(flextable) # tables for word 
+library(huxtable)
+library(modelsummary)
+library(grid)
+library(ggpubr)
+library(gtable)
+#library(lattice) # qqmath
+```
+\newpage
+
+# INTRODUCTION
+
+L'objectif de ce rapport est de présenter les premiers résultats de l'analyse du rendement.
+Plus précisément, l'effet des différentes pratiques de désherbage alternatives au chimique sur ce dernier.
+
+Les pratiques analysés seront le sarclage, le broyage et les plantes de services comparés au témoin propre.
+Autre que l'effet des pratiques, le cycle et le nombre d'intervention chimique seront testés dans les différents modèles.
+
+Chaque essai va être analysé individuellement afin de déceler certaines spécificités qui pourront aiguiller sur l'analyse globale comprenant tout les essais.
+
+Les modèles linéaires simples et mixtes seront utilisés pour répondre à cet objectif.
+
+
+```{r, load data, echo = FALSE}
+data <- read.xlsx("~/malherbologie/datasets/Objectif_rdt_rec.xlsx")
+
+#data <- data %>% 
+#  filter(essai %in% c("P12", "P25_ITK", "P25_montagne", "P42"),
+#         modalite3 %in% c("TP", "PDS", "Sarclage", 'Broyage'))
+
+#write.xlsx(data,"Data_Ely/final_analysis_rdt_rec_ifth.xlsx")
+
+# selecting essays needed
+data <- data %>% 
+  filter(essai %in% c("P12", "P25_ITK", "P25_montagne", "P42"), 
+                        pratique %in% c("TP", "PDS", "Sarclage", 'Broyage'),
+                        !is.na(Yield_CAS_tha)) %>%
+  mutate(YEAR2 = substr(YEAR, 1, 4))
+
+data = data %>%
+  mutate(
+    essai = case_when(
+      essai == "P25_montagne" ~ "P25_M",
+      TRUE ~ essai
+    ))
+
+# putting P25_ITK as first factor
+data$essai <- factor(data$essai, levels = c("P25_ITK", "P25_M", "P42", "P12"))
+
+# putting TP as first factor
+data$pratique <- factor(data$pratique, levels = c("TP", "Broyage", "PDS", "Sarclage"))
+
+# changing Bloc for P42
+data = data %>% 
+   mutate(
+    Bloc = case_when(
+      essai == "P42" & parcelle %in% c("1","2") ~ 1,
+      essai == "P42" & parcelle %in% c("3","4") ~ 2,
+      essai == "P42" & parcelle %in% c("5","6") ~ 3,
+      essai == "P42" & parcelle %in% c("7","8") ~ 4,
+      TRUE ~ Bloc
+    )) 
+
+# converting some variables to factor
+data$Bloc <- factor(data$Bloc)
+
+# missing values TP P12
+data = data %>%
+  mutate(
+    nb_chimique = case_when(
+      essai == "P12" & YEAR == "2018_2019" & pratique == "TP" ~ 3,
+      TRUE ~ nb_chimique
+    ))
+
+
+write.xlsx(data,"data")
+```
+
+# STAT DESCRIPTIVE
+
+Le jeu de données complet contient au préalable 752 observations et 185 variables. 
+Cependant, seuls 4 essais contiennent les pratiques souhaitées, la P12, la P25 ITK, la P25 Montagne et la P42.
+En filtrant cela avec les bonnes pratiques, on obtient finalement 119 observations analysables (85 pour l'ift et 144 pour le recouvrement).
+
+Voici un premier graphique illustrant les données globales, il est à remarquer que la p25_ITK a beaucoup plus d'observations que les autres essais. 
+La P25 Montagne n'a pas la pratique du broyage et la P42 n'utilise pas les plantes de services.
+
+Les essais sont répartis sur 7 années, allant de 2012 à 2019. Seul la P12 a été implanté avant 2015, le reste des essais l'ont été à partir de 2017.
+
+```{r, echo = FALSE, fig.width=10, fig.height=5}
+plot_grid(
+data %>%
+  ggplot(aes(x = essai, fill = pratique)) +
+  geom_bar() +
+  ggtitle("Nombre d'observations par essais par pratique") +
+  xlab("Essai"),
+data %>%
+  ggplot(aes(x = YEAR2, fill = essai)) +
+  geom_bar() +
+  ggtitle("Nombre d'observations par année par essais") +
+  xlab("Année")) 
+
+```
+
+
+## P25 Montagne
+
+L'essai suivant est un plan en bloc complet de deux répétitions avec 24 observations au total. 
+
+
+```{r, STAT Descriptive p25m, fig.width=10, fig.height=9, echo = FALSE,message=FALSE}
+# P25_montagne
+
+data_P25_m <- data %>% filter(essai == "P25_M")
+# View(data_P25_m)
+plot_grid(
+  ggplot(data_P25_m, aes(x=pratique, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  # ggplot(data_P25_m, aes(x=cycle, y=Yield_CAS_tha)) + geom_boxplot(),
+  ggplot(data_P25_m, aes(x=cycle, y=Yield_CAS_tha, color=pratique)) + geom_boxplot()
+  + ggtitle("Cycle par pratique"),
+  ggplot(data_P25_m, aes(x=nb_chimique, y=Yield_CAS_tha, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique par pratique"),
+  ggplot(data_P25_m, aes(x=Bloc, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Bloc"),
+  ggplot(data_P25_m, aes(x=YEAR2, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Année") +
+     xlab("Année"),
+nrow=2)
+
+
+```
+
+Une première description graphique des données nous indique qu'il y a surement une différence de rendement entre la pratique de PDS et les autres. 
+De plus, il ne semble pas avoir d'interaction entre les cycles et les pratiques.
+
+Et il y a également une différence de rendement entre l'année 2017 et les deux années suivantes.
+
+Pour chaque pratique on décrit une corrélation négative entre le nombre d'interventions chimique et le rendement.
+
+### Structure aléatoire
+
+
+L'effet bloc et année sont choisit comme aléatoire, en effet l'intérêt de ces facteurs sont leur extrapolation. De plus, cela permet également la prise en compte d'une structure de correlation entre les observations.
+
+```{r Structure_aleatoire_p25m}
+# selection de la structure aleatoire
+fit1 <- lmer(Yield_CAS_tha ~ pratique * cycle + nb_chimique + (1|YEAR2), data=data_P25_m)
+fit2 <- lmer(Yield_CAS_tha ~ pratique * cycle + nb_chimique + (1|Bloc), data=data_P25_m)
+fit3 <- lmer(Yield_CAS_tha ~ pratique * cycle + nb_chimique + (1|Bloc) + (1|YEAR2), data=data_P25_m)
+
+AIC(fit1, fit2, fit3) # fit1
+BIC(fit1, fit2, fit3) # fit1
+```
+
+La compilation des critères AIC et BIC indique que la structure ne contenant que l'effet aléatoire année est la plus optimale.
+
+### Comparaison avec la structure fixe
+
+Celle-ci est donc choisit, il faut maintenant la comparer à la structure sans effet aléatoire.
+
+```{r Comparaison_fixe_p25m}
+# Comparaison avec la structure fixe
+fit0 <-  gls(Yield_CAS_tha ~ pratique * cycle + nb_chimique, data=data_P25_m)
+fit1 <- lme(Yield_CAS_tha ~ pratique * cycle + nb_chimique , random =~1|YEAR2, data=data_P25_m)
+
+AIC(fit0, fit1)
+BIC(fit0, fit1)
+
+# La meilleur structure est celle sans effet aléatoire
+```
+
+La comparaison avec les critères cités précedemment indique que la structure sans effet aléatoire est la plus optimale pour expliquer le rendement.
+
+### Selection du modèle final
+
+Reste maintenant la sélection du modèle final.
+
+```{r Selection_du_modèle_final_p25m, echo = FALSE, message = FALSE,results = FALSE}
+fit1 <-  lm(Yield_CAS_tha ~ pratique * cycle  + nb_chimique, data=data_P25_m)
+anova(fit1)
+
+fit2 <-  lm(Yield_CAS_tha ~ pratique + cycle + nb_chimique, data=data_P25_m)
+anova(fit2)
+
+fit3 <-  lm(Yield_CAS_tha ~ pratique + cycle, data=data_P25_m)
+anova(fit3)
+
+```
+
+L'approche "Backward" montre que l'interaction entre les différentes pratiques et le cycle n'est pas du tout significatif. De même pour l'effet dû au nombre d'interventions chimiques.
+
+Les facteurs significatifs gardés sur le modèle final sont la pratique et le cycle.
+
+Voici la formule du modèle :
+
+**YIELD ~ PRATIQUE + CYCLE **
+
+En effectuant un summary, on obtient le détail de chaque modalité ci-dessous. Avec la pratique témoin propre (TP) et le cycle de plantation comme référence de comparaison.
+
+```{r, echo = FALSE}
+fit_final <- fit3
+summary(fit_final)
+```
+
+On constate alors ce qui a été vu sur les graphiques précédents, la pratique PDS est bien significatif. Elle réduit le rendement de -36 t/ha par rapport à la moyenne.
+Le sarclage réduit légèrement le rendement également mais celle-ci n'est pas significatif.
+Il faudrait faire des tests de Tukey avec les lettres de regroupement.
+
+Le cycle de repousse permet lui d'influencer positivement le rendement de manière très significative. Ce résultat était attendu.
+
+
+### Diagnostic
+
+Les hypothèses d'homoscédasticité de la variance, de normalité et d'indépendance des résidus doivent être vérifiés :
+
+```{r Diagnostic_p25m, echo = FALSE, message = FALSE}
+data_P25_m$res <- residuals(fit_final, "pearson")
+data_P25_m$fitted <- predict(fit_final)
+
+par(mfrow=c(2, 2))
+plot(fit_final)
+
+plot_grid(
+  ggplot(data_P25_m, aes(x=res)) + geom_histogram(bins = 5,
+                           fill = "lightblue", color = "black"),
+  ggplot(data_P25_m, aes(y=res, x=YEAR2)) + geom_point() + geom_smooth(method="lm"),
+  ggplot(data_P25_m, aes(y=res, x=cycle)) + geom_boxplot(),
+  ggplot(data_P25_m, aes(y=res, x=pratique)) + geom_boxplot())
+
+```
+
+Les différents graphiques montrent que les variances des résidus semblent être homogènes.
+De plus, la normalité semble être respecté, il n'y a pas de variables aberrantes. 
+Les résidus semblent aussi être indépendants du temps.
+Concernant les résidus sur les variables explicatives, aucune tendance n'est observée.
+
+Le diagnostic confirme le choix du modèle.
+
+### Post-Hoc
+
+```{r}
+lsmeans(fit_final, pairwise~pratique, adjust="tukey")
+plot(allEffects(fit_final))
+```
+
+
+## P25 ITK
+
+L'essai suivant est un plan en bloc complet de quatre répétitions avec 78 observations au total.
+Il est à noter que la dernière année ne possède que 2 répétitions.
+
+```{r STAT_Descriptive_p25itk,fig.width=10, fig.height=9, echo = FALSE,message=FALSE}
+data_P25_itk <- data %>% filter(essai == "P25_ITK")
+
+
+#data_P25_itk$parcelle2 <- as.factor(data_P25_itk$parcelle)
+
+# View(data_P25_m)
+grid.arrange(
+  ggplot(data_P25_itk, aes(x=pratique, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P25_itk, aes(x=parcelle, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Parcelle "),
+  ggplot(data_P25_itk, aes(x=nb_chimique, y=Yield_CAS_tha, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique par pratique"),
+  ggplot(data_P25_itk, aes(x=Bloc, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Bloc "),
+  ggplot(data_P25_itk, aes(x=YEAR2, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Année "),
+  ggplot(data_P25_itk, aes(x=YEAR2, y=Yield_CAS_tha, fill = pratique)) + geom_boxplot()
+  + ggtitle("Année par pratique"),
+  nrow=2)
+
+# cycle non inclus car uniquement repousse et cycle_detailed confondu avec année
+```
+
+Les différents graphiques ne montrent pas d'effet pratique. Il suggère cependant un effet temporelle (année) et une légère tendance au niveau des blocs et du nombre d'interventions chimiques.
+On ne constate pas d'interaction entre l'année et la pratique.
+
+### Structure aléatoire
+
+```{r, Structure_aléatoire_p25itk,echo = FALSE, message = FALSE,results = FALSE}
+fit1 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|YEAR2), data=data_P25_itk)
+fit2 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|Bloc), data=data_P25_itk)
+fit3 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|parcelle), data=data_P25_itk)
+fit4 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|Bloc) + (1|YEAR2), data=data_P25_itk)
+fit5 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk)
+fit6 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|parcelle) + (1|YEAR2), data=data_P25_itk)
+
+AIC(fit1, fit2, fit3, fit4, fit5, fit6)
+BIC(fit1, fit2, fit3, fit4, fit5, fit6)
+
+# le meilleur modèle est fit4, bloc et année en effet aléatoire
+```
+
+Les variables candidates à la construction de la structure aléatoire sont le Bloc, la parcelle et l'année.
+Les parcelles sont emboités dans la variable Bloc. 
+
+La structure choisit grâce aux critères AIC/BIC est celle additionnant les effets aléatoires bloc et année.
+
+### Sélection du modèle final
+
+
+```{r Sélection_du_modèle_final_p25itk,echo = FALSE, message = FALSE,results = FALSE}
+# effet fixes
+fit1 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + (1|Bloc) + (1|YEAR2),
+             data=data_P25_itk, REML = FALSE)
+anova(fit1)
+fit2 <- lmer(Yield_CAS_tha ~ pratique + (1|Bloc) + (1|YEAR2),
+             data=data_P25_itk, REML = FALSE)
+anova(fit2)
+fit3 <- lmer(Yield_CAS_tha ~ (1|Bloc) + (1|YEAR2),
+             data=data_P25_itk, REML = FALSE)
+anova(fit3)
+
+AIC(fit1,fit2,fit3)
+BIC(fit1,fit2,fit3) # pertinent ?
+
+drop1(fit1,test="Chisq") # Likelihood Ratio Test (LRT)
+anova(fit1,fit2,test="Chisq")
+drop1(fit2,test="Chisq") # la pratique est ici significative
+
+fit_final <- lmer(Yield_CAS_tha ~ pratique + (1|Bloc) + (1|YEAR2),
+             data=data_P25_itk)
+
+
+```
+
+
+Les effets fixes sont maintenant sélectionnés (grâce au test du ratio de vraisemblance). 
+Seul le facteur de pratique ici est significatif,
+
+```{r,echo = FALSE}
+summary(fit_final)
+```
+
+Plus précisément grâce au summary, seuls la pratique PDS et l'intercept sont significatifs.
+Cette dernière influence négativement le rendement de -11.
+
+Voici le modèle final retenu : 
+
+**YIELD ~ PRATIQUE + 1|BLOC + 1|YEAR **
+
+La structure aléatoire contient bien le bloc et l'année, ce qui est cohérent compte tenu des premiers graphiques.
+L'effet fixe des pratiques est également significatif. 
+
+### Diagnostic
+
+
+```{r, Diagnostic_p25itk, fig.width=8,echo = FALSE, message = FALSE,results = FALSE,fig.show='hide'}
+# diagnostic
+data_P25_itk$res <- residuals(fit_final, "pearson")
+data_P25_itk$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P25_itk, aes(x = res)) +
+            geom_histogram(bins = 50,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P25_itk, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P25_itk, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P25_itk, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Pratique"),
+          ggplot(data_P25_itk, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"))
+
+
+ks.test(data_P25_itk$res, "pnorm", 0, sd(data_P25_itk$res))
+shapiro.test(data_P25_itk$res)
+bartlett.test(data_P25_itk$res,data_P25_itk$pratique)
+
+
+```
+
+Les résidus sont répartis normalement sur l'histogramme et le qqplot (on constate de léger départs cependant). 
+De plus les variances de celle-ci sont globalement homogènes.
+Cela est confirmé par les tests de normalité et d'homogénéité de Shapiro, Kolgomorov et Bartlett.
+
+Et il n'y pas de dépendance temporelle, ni de tendance de la variable pratique.
+
+
+## P42
+
+La P42 est un essai annoncé comme un Split-Plot mais dans les faits elle s'apparente à un plan en bloc.
+
+Autre particularité de cet essai c'est qu'il teste le sarclage en plantation puis l'année d'après le broyage. Et ce sur les mêmes parcelles du champ d'expérimentation.
+Il y a donc une confusion entre la variable plantation/repousse, la variable année et la variable pratique, or il est connu que le rendement est moindre en plantation qu’en repousse.
+
+```{r, STAT_Descriptive_p42, fig.height=9, fig.width=8, echo = FALSE,message=FALSE}
+#data <- read.xlsx("Data_Ely/Objectif_rdt_rec.xlsx")
+
+# selecting essays needed
+#data <- data %>% filter(essai %in% c("P12", "P25_ITK", "P25_montagne", "P42"), 
+#                        pratique %in% c("TP", "PDS", "Sarclage", 'Broyage'),
+#                        !is.na(Yield_CAS_tha)) %>% mutate(YEAR2 = substr(YEAR, 1, 4))
+
+data_P42 <- data %>% filter(essai == "P42")
+
+data_P42$sous_bloc = rep(c("1_1","1_1","1_2","1_2","2_1","2_1","2_2","2_2"),2)
+data_P42$paillis_R = factor(rep(c(0,1,0,1,1,0,1,0),2))
+
+#data_P42 = data_P42 %>%
+#  mutate(
+#    pratique = case_when(
+#      pratique == "TP" & YEAR == "2018_2019" ~ "TP_2018",
+#      pratique == "TP" & YEAR == "2019_2020" ~ "TP_2019",
+#      TRUE ~ pratique
+#    ))
+
+data_P42 = data_P42 %>%
+  relocate(c("sous_bloc","paillis_R"), .after = Bloc)
+
+# putting TP as first factor
+#data_P42$pratique <- factor(data_P42$pratique, levels = c("TP_2018", "TP_2019", "Broyage", "PDS", "Sarclage"))
+# converting some variables to factor
+#data_P42$Bloc <- factor(data_P42$Bloc)
+
+grid.arrange(
+  ggplot(data_P42, aes(x=pratique, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P42, aes(x=nb_chimique, y=Yield_CAS_tha, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique "),
+  ggplot(data_P42, aes(x=Bloc, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Bloc "),
+  ggplot(data_P42, aes(x=cycle, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Cycle"),
+  ggplot(data_P42, aes(x=sous_bloc, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Sous bloc "),
+  ggplot(data_P42, aes(x=paillis_R, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Paillis "),
+  ggplot(data_P42, aes(x=YEAR2, y=Yield_CAS_tha, fill = paillis_R)) + geom_boxplot()
+  + ggtitle("Année par paillis "),
+  ggplot(data_P42, aes(x=parcelle, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Parcelle "),
+  nrow=3)
+
+
+```
+
+Les différents graphiques semble mettre en avant une différence entre les pratiques, malgré que les boxplots de celles-ci se chevauchent. Le sarclage a une médiane bien inférieur au reste.
+
+C'est également le cas entre les deux années. Pas d'interaction entre le paillis et l'année.
+Une corrélation positive semble $etre dessiné pour le nombre d'intervention chimique avec le rendement.
+Il semble y avoir une différence entre les parcelles, la 1,2 et 6 ayant une médiane bien inférieur au reste.
+
+
+### Structure aléatoire
+
+Pour composer la structure aléatoire de cet essai, les combinaisons de l'année, de la parcelle, du bloc et du sous bloc sont testés. 
+Les effets fixes sont additionnés (pratique, nombre chimique et paillis), aucune interaction n'est testé ici.
+L'année n'est pas intégré car il est confondu avec le cycle. Et il est connu que le cycle de plantation/repousse influence grandement le rendement.
+
+```{r, Structure_aléatoire_p42,echo = FALSE, message = FALSE,results = FALSE}
+fit1 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc), data=data_P42)
+fit2 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc:sous_bloc), data=data_P42)
+fit3 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|sous_bloc), data=data_P42)
+fit4 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|parcelle), data=data_P42)
+fit5 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc:parcelle), data=data_P42)
+fit6 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc/parcelle), data=data_P42)
+fit7 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc:sous_bloc:parcelle), data=data_P42)
+fit8 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc/sous_bloc/parcelle), data=data_P42)
+fit9 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc/sous_bloc), data=data_P42)
+
+
+AIC(fit1, fit2, fit3, fit4,fit5,fit6,fit7,fit8,fit9)
+BIC(fit1, fit2, fit3, fit4,fit5,fit6,fit7,fit8,fit9)
+```
+
+Les critères AIC et BIC désignent le modèle ayant le sous bloc emboité dans le bloc en facteur aléatoire lorsque tout les facteurs fixes sont présents.
+
+
+### Sélection du modèle final
+
+```{r, Sélection_du_modèle_final_p42,echo = FALSE, message = FALSE,results = FALSE}
+# modèle final
+fit1 <- lmer(Yield_CAS_tha ~ pratique + nb_chimique + paillis_R + cycle + (1|Bloc:sous_bloc), data=data_P42,REML = FALSE)
+anova(fit1)
+
+fit2 <- lmer(Yield_CAS_tha ~ pratique + paillis_R + cycle + (1|Bloc:sous_bloc), data=data_P42,REML = FALSE)
+anova(fit2)
+
+fit_final <- lmer(Yield_CAS_tha ~ pratique + paillis_R + cycle + (1|Bloc:sous_bloc), data=data_P42,REML = TRUE)
+anova(fit_final)
+summary(fit_final)
+
+```
+
+En utilisant la méthode "Backward", les facteurs significatifs conservés sont la pratique, le paillis et le cycle.
+Grâce au summary on remarque que la pratique du Sarclage n'a pas d'effet significatif sur le rendement. 
+En revanche, le Broyage a une influence négative significative de -20. 
+Le paillis et le cycle de repousse ont une influence positive significative sur le rendement (resp. 16 et 49).
+
+### Diagnostic
+
+```{r, Diagnostic_p42,fig.width=8,echo = FALSE, message = FALSE,results = FALSE,fig.show='hide'}
+# diagnostic
+data_P42$res <- residuals(fit_final, type = "pearson")
+data_P42$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P42, aes(x = res)) +
+            geom_histogram(bins = 5,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P42, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P42, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P42, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Pratique"),
+          ggplot(data_P42, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"))
+
+```
+
+Les résidus sont normales et la variance est homogène.
+La variance des résidus de l'année 2019 par rapport à l'année 2018. Mais aucune tendance n'est à signaler.
+
+## P12
+
+Cet essai ne contient pas de répétition. Il n'est donc pas analysable individuellement.
+
+# DISCUSSION PAR ESSAI
+
+Les pratiques de désherbage sont significatifs pour les essais P25. Avec notamment la PDS qui influence négativement le rendement.
+Les autres pratiques ne diffèrent pas significativement du témoin propre.
+A noter, le cycle de repousse qui influence positivement le rendement pour l'essai de la P25 Montagne et la P42.
+A noter que pour ce dernier le broyage influence négativement le rendement, cependant c'est l'inverse pour le paillis. 
+
+Pour la structure aléatoire, l'année et le bloc suffit à expliquer la variance pour l'essai ITK. Concernant la P42, le sous_bloc emboité dans le bloc.
+
+Les diagnostics de ces trois essais sont tous satisfaisants.
+Passons maitenant à l'analyse globale des quatres essais.
+
+# ALL 
+
+
+```{r LATEX, eval = FALSE}
+# TABLES
+# for introduction analysis 
+means <- as.matrix(with(data, tapply(Yield_CAS_tha, pratique, mean)))
+xtable(means)
+
+xtable(anova(fit_final,type="2")) # computing anova model
+xtable(ranova(fit_final))
+
+texreg(list(fit1,fit2,fit3,fit4)) # compute comparison of models
+
+texreg(tk)
+# summary of fit_final
+a = summary(fit_final)
+xtable(a$coefficients)
+xtable(a$varcor)
+xtable(VarCorr(fit_final))
+xtable(confint(fit_final_profile))
+
+# PLOTS
+# interaction plot
+par(mfrow=c(1,2))
+with(data, {
+interaction.plot(essai, pratique, Yield_CAS_tha, legend=FALSE,col=topo.colors(5))
+interaction.plot(cycle, pratique, Yield_CAS_tha,col=topo.colors(5))
+})
+
+```
+
+
+L'analyse des quatres essais cités précedemment s'apparente à une méta-analyse. Cependant les protocoles de chacun diffèrent car ces essais n'ont pas été conçu à cette fin (analyse globale).
+
+Il donc est nécessaire de prendre en compte les spécificités de chacun et prendre avec précaution les conclusions effectuées.
+
+### Statistique descriptive
+
+On commence par dessiner quelques graphiques afin d'avoir un premier aperçu des données :
+
+
+```{r, STAT_Descriptive_all,echo = FALSE,message=FALSE, fig.width= 9}
+
+# graph for study
+plot_grid(
+  ggplot(data, aes(x=pratique, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Pratique ") +
+    theme(plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2),
+         axis.title.x = element_blank(),
+         panel.spacing = unit(5, "lines")) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  ggplot(data, aes(x=essai, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Essai ") +
+     theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2, l =2)) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  #ggplot(data, aes(x=essai, y=Yield_CAS_tha, color = pratique)) + geom_boxplot()
+  #+ ggtitle("Essai par pratique"),
+  ggplot(data, aes(x=cycle, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Cycle ") +
+    theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(l = 2)) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  #ggplot(data, aes(x=cycle, y=Yield_CAS_tha, color=pratique)) + geom_boxplot()
+  #+ ggtitle("Cycle par pratique "),
+  #ggplot(data, aes(x=Bloc, y=Yield_CAS_tha)) + geom_boxplot()
+  #+ ggtitle("Bloc"),
+  ggplot(data, aes(x=nb_chimique, y=Yield_CAS_tha)) + geom_point() + geom_smooth(method="lm") +
+    ggtitle("Nb d'intervention chimique ") +
+    theme(
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(r = 2, l = 2)),
+  ggplot(data, aes(x=YEAR2, y=Yield_CAS_tha)) + geom_boxplot()
+  + ggtitle("Année") +
+    theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(r = 2, l = 2))+
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  #ggplot(data, aes(x=parcelle, y=Yield_CAS_tha)) + geom_boxplot()
+  #+ ggtitle("Parcelle"),
+  labels=c("A", "B","C","D","E"),
+  nrow=2,
+  scale=0.9)
+
+```
+
+
+```{r trois, STAT_Descriptive_all,echo = FALSE,message=FALSE, fig.width= 9}
+
+p1 =  ggplot(data, aes(x=pratique, y=Yield_CAS_tha)) + geom_boxplot() +
+  ggtitle("Pratique ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p2 =  ggplot(data, aes(x=essai, y=Yield_CAS_tha)) + geom_boxplot() +
+  ggtitle("Essai ") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2, l = 2))
+
+p3 = ggplot(data, aes(x=cycle, y=Yield_CAS_tha)) + geom_boxplot() +
+  ggtitle("Cycle ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p4 = ggplot(data, aes(x=YEAR2, y=Yield_CAS_tha)) + geom_boxplot() +
+  ggtitle("Année") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.margin = margin( l = 2))
+
+ggarrange(p1,p2,p3,p4,common.legend = TRUE,nrow = 2, ncol = 2)
+
+
+
+
+p1 =  ggplot(data, aes(x=essai, y=Yield_CAS_tha, color = pratique)) + geom_boxplot() +
+  ggtitle("Essai par pratique") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p2 =  ggplot(data, aes(x=cycle, y=Yield_CAS_tha, color=pratique)) + geom_boxplot() +
+  ggtitle("Cycle par pratique ") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2, l = 2))
+
+p3 = ggplot(data, aes(x=nb_chimique, y=Yield_CAS_tha)) + geom_point() + geom_smooth(method="lm") +
+  ggtitle("Nb d'intervention chimique ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p4 = ggplot(data, aes(x=nb_chimique, y=Yield_CAS_tha,color=pratique)) + geom_smooth(method="lm") +
+  ggtitle("Nb d'intervention chimique par pratique") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.margin = margin( l = 2))
+
+ggarrange(p1,p2,p3,p4,common.legend = TRUE,nrow = 2, ncol = 2,legend = "right")
+
+
+
+```
+
+```{r,fig.width=10}
+ggarrange(p1,p2,p3,p4,nrow = 1)
+```
+
+
+D'après les graphiques, il semble y avoir une différence pour les facteurs essais, cycle, bloc et année.
+L'essai P25 Montagne possède une médiane de rendement plus elevé que les autres, bien que les boxplots se chevauchent. 
+
+De plus, le cycle de repousse a lui un rendement bien plus elevé que la plantation.
+Le détail des cycles semble nous montrer un effet croissant plus le cycle est récent, cependant la deuxième année de repousse contredit cela.
+Il semble également y avoir un léger effet de bloc décroissant.
+Le nombre d'intervention chimique cependant lui ne semble pas avoir d'effet sur le rendement.
+
+Au niveau des interactions il ne semble pas y en avoir (notamment entre cycle,pratique et essai).
+
+### Structure aléatoire
+
+Viens le choix du modèle. Pour la sélection de ce dernier, la stratégie "Top-down" est choisit (recommandé par Diggle (2002)).
+
+Pour cet analyse plusieurs choix de référence pour les comparaisons ont été effectué : la pratique du temoin propre (TP), le cycle de plantation et l'essai P25_ITK.
+Cet essai a été choisit car il contient toutes les pratiques de désherbage (de plus il a pu être analysé individuellement contrairement à la P12).
+
+La première étape est de déterminer la structure aléatoire. Tout les effets fixes sont inclus dans les modèles à choisir ainsi que les interactions potentielles.
+
+En intégrant ainsi les facteurs du nombre d'intervention chimique, des pratiques de désherbage, du cycle ,l'interaction de ces deux derniers, ainsi que l'essai; son interaction avec la pratique et celle avec le nombre d'intervention chimique.
+Nous comparons les différentes structures aléatoires.
+
+L'essai a finalement été incorporé dans la structure fixe ainsi que dans la structure aléatoire.
+En effet, le détail de l'effet (ainsi qu'une éventuelle interaction avec la pratique) de cette variable nous intéresse fortement ainsi que sa généralisation.
+
+De plus, on rajoute à cela les effets de Bloc et de parcelle qui sont nécéssairement emboités dans l'essai.
+Car un bloc du même nom diffère d'un essai à un autre.
+
+On commence donc par comparer ces différentes structures entre elle avec les critères AIC/BIC.
+Les combinaisons des variables aléatoires testées sont l'année et donc le bloc ainsi que la parcelle emboité dans l'essai. Il en ressort ainsi treize modèles potentiels :
+
+```{r essai_en_fixe,results = FALSE,message = FALSE, echo = TRUE}
+# essai en fixe
+fit1 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle) + (1|essai:Bloc) + (1|YEAR2), data=data)
+
+fit2 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|essai:Bloc) + (1|YEAR2), data=data)
+
+fit3 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc) + (1|YEAR2), data=data)
+
+fit4 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc), data=data)
+
+fit5 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle) + (1|YEAR2), data=data)
+
+fit6 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle), data=data)
+
+fit7 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|YEAR2), data=data)
+
+fit8 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|YEAR2), data=data)
+
+fit9 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|essai:Bloc), data=data)
+
+fit10 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle), data=data)
+
+fit11 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc), data=data)
+
+fit12 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|YEAR2), data=data)
+
+fit13 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data)
+
+
+```
+
+On procède par une comparaison de ces septs modèles par AIC/BIC, voici leurs résultats :
+
+```{r aic_bic_all, results = TRUE}
+a = AIC(fit1,fit2, fit3, fit4, fit5, fit6,fit7,fit8, fit9, fit10,fit11,fit12,fit13)
+b = BIC(fit1,fit2, fit3, fit4, fit5, fit6,fit7,fit8, fit9, fit10,fit11,fit12,fit13)
+
+#texreg(list(fit1,fit2,fit3,fit4,fit5,fit6,fit7)) # latex
+#knitr::kable(list(a, b$BIC))
+
+a
+```
+
+
+```{r, results=TRUE}
+b
+```
+
+
+La structure contenant le croisement des effets aléatoires Année et Bloc (emboité dans l'effet essai) est choisit par les deux critères.
+
+### Sélection du modèle final
+
+Pour sélectionner les facteurs fixes, la méthode "backward" sera utilisé et les critères AIC/BIC sont utilisés. 
+Les p-valeurs sont construits grâce à la méthode de Satterthwaite.
+
+La méthode utilisant l'analyse de variance (par voie "Backward") ainsi que le BIC sélectionne le modèle le plus parcimonieux (addition du cycle et de la pratique).
+L'essai n'est pas significatif à 5% mais l'est à 10%, on choisit cependant de le garder. En effet, il a été constaté que lorsque ce dernier n'était pas dans la structure fixe, la variance expliquée par l'effet aléatoire "année" est surestimée par le modèle.
+
+
+```{r Sélection_du_modèle_final_all, echo = FALSE,message=FALSE}
+# methode LRT 
+# methode Satterthwaite (permet d'estimer les degrès de libertés effectifs nécessaire au t-test)
+# AIC/BIC comparison of models
+# compute p-values
+
+
+fit1 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data,REML = TRUE)
+anova(fit1, type = "2")
+
+fit2 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data,REML = TRUE)
+anova(fit2, type = "2")
+
+fit3 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + cycle + (1|essai:Bloc) + (1|YEAR2), data=data,REML = TRUE)
+anova(fit3, type = "2")
+
+fit4 <- lmer(Yield_CAS_tha ~ pratique + essai + cycle + (1|essai:Bloc) + (1|YEAR2), data=data,REML = TRUE)
+anova(fit4, type = "2")
+
+fit5 <- lmer(Yield_CAS_tha ~ pratique + cycle + (1|essai:Bloc) + (1|YEAR2), data=data,REML = TRUE)
+anova(fit5, type = "2")
+
+# CRITERE AIC/BIC
+
+fit6 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data,REML = FALSE)
+
+fit7 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data,REML = FALSE)
+
+fit8 <- lmer(Yield_CAS_tha ~ pratique + essai + pratique:essai + cycle + (1|essai:Bloc) + (1|YEAR2), data=data,REML = FALSE)
+
+fit9 <- lmer(Yield_CAS_tha ~ pratique + essai + cycle + (1|essai:Bloc) + (1|YEAR2), data=data,REML = FALSE)
+
+fit10 <- lmer(Yield_CAS_tha ~ pratique + cycle + (1|essai:Bloc) + (1|YEAR2), data=data,REML = FALSE)
+
+AIC(fit6,fit7,fit8,fit9,fit10)
+BIC(fit6,fit7,fit8,fit9,fit10) # non utilisable car pas le mm nombre d'obs
+```
+
+
+Voici le tableau d'analyse de variance de type $III$ avec les p-valeurs des effets significatifs :
+
+
+```{r anova, results = TRUE}
+fit_final = fit4
+knitr::kable(anova(fit_final))
+xtable(anova(fit_final)) # computing anova model
+```
+
+
+
+Les effets du cycle et de la pratique sont bien significatifs.
+
+On peut alors écrire la formule complète du modèle ainsi :
+
+$$
+Rdt_{ijklmn} \sim \mu + P_i + C_j + E_k + EB_{lm} + A_n + \epsilon_{ijklmn}
+$$
+
+
+
+
+
+$$
+EB_{lm} \sim N(0,\sigma^2_{EB}),l,m = 1...{L,M}
+$$
+
+
+
+
+$$
+A_n \sim N(0,\sigma^2_N),n = 1...N
+$$
+
+
+
+$$
+\epsilon \sim N(0,\sigma^2_{\epsilon}), \forall i,j,k,l,m,n
+$$
+
+
+$Rdt_{ijklmn}$ : Le rendement de l'observation $ijklmn$ en t/ha
+
+$\mu$ : l'intercept 
+
+$P_i$ : l'effet de la pratique i, $i = 1...4$ et $P_1 = 0$
+
+$C_j$ : l'effet du cycle j, $j = 1,2$ et $C_1 = 0$
+
+$E_k$ : l'effet de l'essai k, $k = 1,4$ et $E_1 = 0$
+
+$EB_{l,m}$ : l'effet du bloc m emboité dans l'essai l, $l,m = 1...4$ et $EB_{1,1} = 0$
+
+$A_n$ : l'effet de l'année n, $n = 1...7$ et $A_1 = 0$
+
+$\epsilon_{ijklmn}$ l'erreur résiduelle à $ijklmn$
+
+
+Voyons maintenant de plus près le détail de ces facteurs grâce au résumé (summary) fournit par R :
+
+```{r, echo = FALSE, results = TRUE}
+summary(fit_final)
+Results <- capture.output(summary(fit_final))
+```
+
+
+Concernant la pratique, seul la PDS est significative au seuil de 5%. Celle-ci comme vu dans les essais analysés individuellement, influence négativement le rendement d'environ -20 t/ha.
+
+Les deux pratiques de Sarclage et de Broyage font relativement baisser le poids du rendement mais cela n'est pas statistiquement significatif.
+
+De même comme vu précdemment, le cycle de repousse influence positivement le rendement de +62 t/ha comparé à la plantation.
+
+Chaque essai contribue également à avoir un rendement plus élevé, cependant cela n'est pas significatif.
+Hormis la P25_Montagne (+46 t/ha environ), qui l'est au seuil de 10%.
+
+### Diagnostic
+
+Pour valider les derniers résultats, les hypothèses d'homoscédascité, de normalité et d'indépendance des résidus doivent être validés.
+
+On affiche les différents graphiques et tests permettant de diagnostiquer le modèle final :
+
+```{r, Diagnostic_all, fig.width=8, echo = FALSE}
+# diagnostic
+data$res <- residuals(fit_final, "pearson")
+data$fitted <- predict(fit_final)
+
+plot_grid(nrow = 3, ncol = 3,
+          ggplot(data, aes(x = res)) +
+            geom_histogram(bins = 50,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Pratique"),
+          ggplot(data, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data, aes(y = res, x = essai)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Essai"),
+          ggplot(data, aes(y = res, x = Bloc)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Bloc"))
+
+ks.test(data$res, "pnorm", 0, sd(data$res))
+shapiro.test(data$res)
+bartlett.test(data$res,data$pratique)
+
+```
+
+```{r}
+ks.test(data$res, "pnorm", 0, sd(data$res))
+shapiro.test(data$res)
+bartlett.test(data$res,data$pratique)
+```
+
+
+
+Le diagnostic des résidus montre leur indépendance, l'homogénéité de leur variance et leur normalité.
+En dessinant chaque facteur d'interet contre les résidus, on remarque que ces derniers sont plutôt homogènes également.
+Et en effectuant les différents tests, ce qui est vu graphiquement est confirmé.
+
+### Post-Hoc
+
+Voici les estimations des variances des effets aléatoires et leurs intervalles de confiance :
+
+```{r, echo=FALSE, results = TRUE}
+knitr::kable(VarCorr(fit_final)) # estimate of the variance parameter
+```
+
+Les estimations des variances se retrouvent bien dans l'intervalle de confiance compilé par la vraisemblance :
+
+```{r, results = TRUE}
+fit_final_profile <- profile(fit_final, which=1:3, signames=FALSE) # likelihood CI
+knitr::kable(confint(fit_final_profile))
+```
+
+
+On compile maintenant les moyennes ajustées par la méthode de Tukey pour les différentes pratiques :
+
+```{r, results = TRUE}
+tk = emmeans(fit_final, pairwise~pratique, adjust="tukey")
+xtable(tk$contrasts)
+```
+
+La pratique de la PDS a un rendement significativement plus faible que le témoin propre et le Sarclage.
+
+```{r, results = TRUE}
+emmeans(fit_final, pairwise~essai, adjust="tukey")
+```
+
+
+
+On peut apercevoir graphiquement les différences entre les différents effets :
+
+```{r, fig.width=10}
+a = allEffects(fit_final)
+
+
+
+plot(c(a$essai,a$cycle))
+
+plot(a$essai)
+mtext("a", side=3)
+
+essai =as.data.frame(a$essai)
+
+essai = essai %>%
+  mutate(
+    L = case_when(
+      essai %in% c("P25_ITK	","P12") ~ "a \n b",
+      essai %in% c("P25_M	") ~ "b",
+      essai %in% c("P42	") ~ "a"
+    )
+  )
+
+
+plot(allEffects(fit_final))
+ggplot(essai, aes(x=essai, y=fit, color = essai,label = L)) +
+  geom_line(aes(colour=("grey")), size =1,group=1) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=.2,
+                 position=position_dodge(0.05)) +
+  ggtitle("Essai effect plot") +
+  labs(x="Pratique", y = "Yield_CAS_tha")+
+   theme_classic() +
+  theme(legend.position="none")
+
+ggplot(data, aes(x = pratique, 
+                y = Yield_CAS_tha, 
+                #colour = LEG_TTT, 
+                label = L)) + # ICI
+  geom_boxplot(outlier.shape = NA,
+               fill = "white", 
+               outlier.colour = NA, 
+               position = position_dodge(width = 0.9)) + 
+  geom_point(position = position_jitterdodge()) +
+  geom_text(aes(y = 0.0,
+                group = LEG_TTT), 
+            check_overlap = T, 
+            position = position_dodge(width = 0.9), col = "black") + 
+  ylab("Yield_CAS_tha") +
+  xlab("Pratique") +
+  theme_classic()
+```
+
+On voit assez nettement ce qui a été vu sur les outputs R précédents.
+La pratique de la PDS qui a un rendement nettement inférieur aux autres. Plus le cycle de plantation qui a un rendement significativement inférieur au cycle de repousse.
+
+Il est possible également de grouper les différentes pratiques avec ce graphique :
+
+```{r}
+# pratique
+tuk2 <- glht(fit_final, linfct = mcp(pratique = "Tukey"))
+tuk.cld2 <- cld(tuk2)
+
+old.par <- par(no.readonly=TRUE) # Save current graphics parameters
+par(mai=c(1,1,1.25,1)) # Use sufficiently large upper margin
+plot(tuk.cld2, col=2:6)
+abline(h=mean(tuk.cld2$y))
+
+# essai
+tuk3 <- glht(fit_final, linfct = mcp(essai = "Tukey"))
+tuk.cld3 <- cld(tuk3)
+
+old.par <- par(no.readonly=TRUE) # Save current graphics parameters
+par(mai=c(1,1,1.25,1)) # Use sufficiently large upper margin
+plot(tuk.cld3, col=2:6)
+
+# cycle
+tuk4 <- glht(fit_final, linfct = mcp(cycle = "Tukey"))
+tuk.cld4 <- cld(tuk4)
+
+old.par <- par(no.readonly=TRUE) # Save current graphics parameters
+par(mai=c(1,1,1.25,1)) # Use sufficiently large upper margin
+plot(tuk.cld4, col=2:3)
+
+plot(tuk.cld2$x,tuk.cld2$y)
+
+
+```
+
+```{r pratique}
+# pratique
+d = as.data.frame(cbind(as.character(tuk.cld2$x),as.double(tuk.cld2$y)))
+
+d = d %>%
+  mutate(
+    L = case_when(
+      V1 %in% c("TP","Broyage","Sarclage") ~ "\n \n b",
+      V1 %in% c("PDS") ~ "a"
+    )
+  )
+
+pratique_tuk = ggplot(d, aes(x=V1, y=as.double(V2),color = V1,label = L)) +
+  geom_boxplot(
+               position = position_dodge(width = 0.9)) +
+#  geom_point(position = position_jitterdodge()) +
+  geom_text(aes(y = 250), 
+            check_overlap = T, 
+            position = position_dodge(width = 0.9), col = "black") +
+  ggtitle("Pratique \n") +
+  theme(plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2),
+         axis.title.x = element_blank(),
+         panel.spacing = unit(5, "lines"),
+         legend.title=element_blank()) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ) +
+  ylab("Yield_CAS_tha") +
+  xlab("Pratique") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r essai}
+# pratique
+d2 = as.data.frame(cbind(as.character(tuk.cld3$x),as.double(tuk.cld3$y)))
+
+d2 = d2 %>%
+  mutate(
+    L = case_when(
+      V1 %in% c("P25_ITK","P12") ~ " a\n b",
+      V1 %in% c("P25_M") ~ "\n b",
+      V1 %in% c("P42") ~ "a \n"
+    )
+  )
+
+essai_tuk = ggplot(d2, aes(x=V1, y=as.double(V2),color = V1,label = L)) +
+  geom_boxplot(
+               position = position_dodge(width = 0.9)) +
+#  geom_point(position = position_jitterdodge()) +
+  geom_text(aes(y = 250), 
+            check_overlap = T, 
+            position = position_dodge(width = 0.9), col = "black") +
+  ggtitle("Essai \n") +
+  theme(plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2),
+         axis.title.x = element_blank(),
+         panel.spacing = unit(5, "lines"),
+         legend.title=element_blank()) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ) +
+  ylab("Yield_CAS_tha") +
+  xlab("Essai") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r cycle}
+d3 = as.data.frame(cbind(as.character(tuk.cld4$x),as.double(tuk.cld4$y)))
+
+d3 = d3 %>%
+  mutate(
+    L = case_when(
+      V1 %in% c("P") ~ "a",
+      V1 %in% c("R") ~ "\n b",
+    )
+  )
+
+cycle_tuk = ggplot(d3, aes(x=V1, y=as.double(V2),color = V1,label = L)) +
+  geom_boxplot(
+               position = position_dodge(width = 0.9)) +
+#  geom_point(position = position_jitterdodge()) +
+  geom_text(aes(y = 250), 
+            check_overlap = T, 
+            position = position_dodge(width = 0.9), col = "black") +
+  ggtitle("Cycle \n") +
+  theme(plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2),
+         axis.title.x = element_blank(),
+         panel.spacing = unit(5, "lines"),
+         legend.title=element_blank()) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ) +
+  ylab("Yield_CAS_tha") +
+  xlab("Cycle") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r,fig.height=8}
+plot_grid(pratique_tuk,essai_tuk,cycle_tuk,labels=c("A", "B","C"))
+
+
+```
+
+
+La TP et le Sarclage se retrouve dans le groupe b et la PDS dans le a.
+Le Broyage lui fait parti du groupe a et b.
+
+Un ranova est effectué pour tester les effets aléatoires du modèle : 
+
+```{r, results = TRUE}
+ranova(fit_final) # test of random effects (à détailler)
+summary(fit_final)
+```
+
+Il en ressort que le Bloc et l'année ont une p-valeur bien inférieur au seuil de 5%.
+
+# DISCUSSION
+
+Les essais analysés individuellement montrent que les facteurs influençant significativement sont les différentes pratiques de désherbage et le cycle.
+
+En effet, plus spécifiquement, la pratique de la PDS l'influence négativement et le cycle de repousse à l'inverse, l'influence positivement.
+
+Les pratiques de désherbage d'intérêts, c'est à dire le broyage et le sarclage n'ont aucune influence significative sur le rendement. Pareillement pour les différents essais.
+
+Ces deux derniers sont également statistiquement différent (P42 > P12).
+
+Ces différents résultats sont corroborés par l'analyse globale des quatre essais.
+
+```{r}
+data %>%
+  dplyr::select(essai,Bloc,modalite_ercane,parcelle) %>%
+  dplyr::filter(essai %in% "P25_ITK") %>%
+  unique()
+
+```
+
+
+
+

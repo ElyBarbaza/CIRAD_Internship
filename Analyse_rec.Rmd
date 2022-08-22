@@ -1,0 +1,921 @@
+---
+title: "Analyse de l'effet des techniques alternatives sur le recouvrement par les adventices sur l'inter-rang des cannes à sucre"
+author: BARBAZA Elysé
+output: 
+  word_document:
+    toc: yes
+    toc_depth: '3'
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE, message = FALSE,dpi = 300, results = FALSE)
+```
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+library(tidyverse)
+library(gridExtra)
+library(openxlsx)
+library(nlme) # lme
+library(lme4) # lmer
+library(lmerTest)
+library(cowplot) # plotgrid
+library(lsmeans)
+library(multcomp) # 
+library(effects) # all effects
+library(pbkrtest)
+library(xtable)
+library(texreg) # tables for lmer model
+library(languageR)
+library(flextable) # tables for word 
+library(huxtable)
+library(modelsummary)
+#library(lattice) # qqmath
+```
+
+```{r}
+library(equatiomatic)
+extract_eq(fit_final, wrap = TRUE, terms_per_line = 2)
+```
+
+
+# INTRODUCTION
+
+De manière très similaire au rendement et à l'ift, l'objectif de ce rapport sera de présenter les premiers résultats de l'analyse du recouvrement de l'inter-rang par les adventices sur les champs de canne à sucre.
+Plus précisément, l'effet des différentes pratiques de désherbage alternatives au chimique sur ce dernier.
+
+Les pratiques analysés seront ici, le sarclage, le broyage, le témoin propre et les plantes de services comparés au témoin enherbé.
+Pareillement, autre que l'effet des pratiques, le cycle et le nombre d'intervention chimique seront testés dans les différents modèles.
+
+La même démarche sera utilisé pour : chaque essai va être analysé individuellement afin de déceler certaines spécificités qui pourront aiguiller sur l'analyse globale comprenant tout les essais.
+
+Les modèles linéaires simples et mixtes seront utilisés pour répondre à cet objectif.
+
+# Chargement des données globales
+
+```{r,load data, echo = FALSE}
+data <- read.xlsx("~/malherbologie/datasets/Objectif_rdt_rec.xlsx")
+# selecting essays needed
+data <- data %>% filter(essai %in% c("P12", "P25_ITK", "P25_montagne", "P42"), 
+                        pratique %in% c("TP", "PDS", "Sarclage", 'Broyage')) %>% 
+  mutate(YEAR2 = substr(YEAR, 1, 4)) %>%
+  drop_na(Rec_globale_IR)
+
+data = data %>%
+  mutate(
+    essai = case_when(
+      essai == "P25_montagne" ~ "P25_M",
+      TRUE ~ essai
+    ))
+
+# putting P25_ITK as first factor
+data$essai <- factor(data$essai, levels = c("P25_ITK", "P25_M", "P42", "P12"))
+
+# putting TP as first factor
+data$pratique <- factor(data$pratique, levels = c("TP","Broyage", "PDS", "Sarclage"))
+
+# changing Bloc for P42
+data = data %>% 
+   mutate(
+    Bloc = case_when(
+      essai == "P42" & parcelle %in% c("1","2") ~ 1,
+      essai == "P42" & parcelle %in% c("3","4") ~ 2,
+      essai == "P42" & parcelle %in% c("5","6") ~ 3,
+      essai == "P42" & parcelle %in% c("7","8") ~ 4,
+      TRUE ~ Bloc
+    )) 
+
+# converting some variables to factor
+data$Bloc <- factor(data$Bloc)
+
+# adding weights
+data = data %>%
+  mutate(
+    weight = case_when(
+      essai == "P25_M" ~ 2.64226,
+      essai == "P25_ITK" ~ 0.30482,
+      essai == "P42" ~ 2.67132,
+      essai == "P12" ~ 0.71318
+    ))
+
+# missing values TP P12
+data = data %>%
+  mutate(
+    nb_chimique = case_when(
+      essai == "P12" & YEAR == "2018_2019" & pratique == "TP" ~ 3,
+      TRUE ~ nb_chimique
+    ))
+
+
+```
+
+# STAT DESCRIPTIVE
+
+Les essais analysés seront les mêmes que pour le rendement et l'ift : la P12, la P25 ITK, la P25 Montagne et la P42.
+En filtrant cela avec les bonnes pratiques et les données manquantes, on obtient finalement 144 observations  analysables.
+
+## P25 Montagne
+
+L'essai suivant est un plan en bloc complet de deux répétitions avec 30 observations au total. 
+
+```{r, STAT Descriptive}
+# P25_montagne
+
+data_P25_m <- data %>% filter(essai == "P25_M")
+# View(data_P25_m)
+plot_grid(
+  ggplot(data_P25_m, aes(x=pratique, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P25_m, aes(x=cycle, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Cycle "),
+  ggplot(data_P25_m, aes(x=cycle, y=Rec_globale_IR, color=pratique)) + geom_boxplot()
+  + ggtitle("Cycle par pratique"),
+  ggplot(data_P25_m, aes(x=nb_chimique, y=Rec_globale_IR, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique par pratique"),
+  ggplot(data_P25_m, aes(x=Bloc, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Bloc"),
+  ggplot(data_P25_m, aes(x=YEAR2, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Année") +
+     xlab("Année"),
+nrow=2)
+
+
+```
+
+Les différentes pratiques semble avoir un taux de recouvrement bien inférieur au TE. La médiane de la TP est la plus petite, mais les boxplots de ces derniers se chevauchent.
+Graphiquement, on remarque que le cycle de repousse a un taux de recouvrement inférieur à celle de plantation.
+Il semble y avoir une légère interaction entre le cycle et pratique, notamment pour le sarclage et la PDS.
+On remarque également une corrélation positive entre le recouvrement et le nombre d'intervention chimique.
+
+### Structure aléatoire
+
+```{r, echo = FALSE}
+# Sélection de la structure aléatoire
+fit1 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|YEAR2), data=data_P25_m)
+fit2 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|Bloc), data=data_P25_m)
+fit3 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|Bloc/parcelle), data=data_P25_m)
+fit4 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_m)
+fit5 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|Bloc) + (1|YEAR2), data=data_P25_m)
+fit6 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|Bloc/parcelle) + (1|YEAR2), data=data_P25_m)
+#fit7 <- lmer(Rec_globale_IR ~ pratique * cycle + nb_chimique + (1|parcelle) + (1|YEAR2), data=data_P25_m)
+
+AIC(fit1, fit2, fit3, fit4, fit5, fit6) # fit1
+BIC(fit1, fit2, fit3, fit4, fit5, fit6) # fit1
+```
+Les facteurs fixes inclus dans les modèles sont la pratique, le cycle, leur interaction et le nombre d'intervention chimique.
+Le modèle incluant l'année uniquement en aléatoire est choisit grâce aux critères AIC et BIC.
+
+### Comparaison fixe
+
+```{r, echo = FALSE}
+# Comparaison avec la structure fixe
+fit0 <-  gls(Rec_globale_IR ~ pratique * cycle + nb_chimique, data=data_P25_m,na.action = na.omit)
+fit1 <- lme(Rec_globale_IR ~ pratique * cycle + nb_chimique , random =~1|YEAR2, data=data_P25_m,na.action = na.omit)
+fit2 <- lme(Rec_globale_IR ~ pratique * cycle + nb_chimique, random =~1|Bloc , data=data_P25_m,na.action = na.omit)
+AIC(fit0, fit1, fit2)
+BIC(fit0, fit1, fit2)
+
+# La meilleur structure est celle sans effet aléatoire
+# **est ce qu'ici, on part obligatoirement de la structure fixe juste en haut ?**
+```
+Le modèle n'incluant pas de structure aléatoire est choisit par les critères AIC/BIC.
+
+
+### Selection du modèle final
+
+```{r,echo = FALSE, message = FALSE,results = FALSE}
+# we choose to drop nb_chimique, because TE has NA on it
+fit1 <-  lm(Rec_globale_IR ~ pratique * cycle, data=data_P25_m)
+anova(fit1)
+
+fit_final <- fit1
+
+summary(fit_final)
+```
+
+Tout les facteurs inclus initialement sont significatifs.
+
+Les pratiques (TP,Sarclage et PDS) sont tous significatifs et influence négativement le recouvrement de l'inter-rang.
+Le cycle de repousse est également significatif et réduit de 10% le recouvrement.
+L'interaction entre le Sarclage et le TP avec le cycle de repousse réduit également le recouvrement.
+
+### Diagnostic
+
+```{r, fig.width=8,echo = FALSE, message = FALSE}
+# issue with rows
+data_P25_m$res <- residuals(fit_final, "pearson")
+data_P25_m$fitted <- predict(fit_final)
+
+par(mfrow=c(2, 2))
+plot(fit_final)
+
+plot_grid(
+  ggplot(data_P25_m, aes(x=res)) + geom_histogram(bins = 5,
+                           fill = "lightblue", color = "black"),
+  ggplot(data_P25_m, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+  ggplot(data_P25_m, aes(y=res, x=YEAR2)) + geom_boxplot(),
+  ggplot(data_P25_m, aes(y=res, x=cycle)) + geom_boxplot(),
+  ggplot(data_P25_m, aes(y=res, x=pratique)) + geom_boxplot())
+
+```
+
+Graphiquement, les résidus semblent être normales et la variance de ces derniers homogènes.
+Sur le graphique des résidus standardisés il semble y avoir une très légère tendance positive.
+Aucune tendance n'est observé pour les facteurs d'intérêts.
+
+## P25 ITK
+
+L'essai suivant est un plan en bloc complet de quatre répétitions avec 78 observations au total.
+La dernière année ne possède que 2 répétitions, cela doit être pris en compte dans l'analyse.
+
+
+```{r,fig.width=9, fig.height=8, echo = FALSE,message=FALSE}
+data_P25_itk <- data %>% filter(essai == "P25_ITK")
+
+# cycle non inclus car uniquement repousse et cycle_detailed confondu avec année
+
+grid.arrange(
+  ggplot(data_P25_itk, aes(x=pratique, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P25_itk, aes(x=parcelle, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Parcelle "),
+  ggplot(data_P25_itk, aes(x=nb_chimique, y=Rec_globale_IR, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique par pratique"),
+  ggplot(data_P25_itk, aes(x=Bloc, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Bloc "),
+  ggplot(data_P25_itk, aes(x=YEAR2, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Année "),
+  ggplot(data_P25_itk, aes(x=YEAR2, y=Rec_globale_IR, fill = pratique)) + geom_boxplot()
+  + ggtitle("Année par pratique"),
+  nrow=3)
+```
+
+Graphiquement, on voit peu de différence entre les pratiques (médiane de TE légèrement supérieur cependant), pas vraiment de tendance par rapport au nombre d'intervention chimique (contraste entre PDS et TP).
+Pas de différence entre les blocs et lègère tendance positive entre les années (correspond au cycle de repousse).
+On aperçoit une petite tendance entre les années.
+
+### Structure aléatoire
+
+```{r,echo = FALSE, message = FALSE,results = FALSE}
+fit1 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|YEAR2), data=data_P25_itk)
+fit2 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc), data=data_P25_itk)
+#fit3 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|parcelle), data=data_P25_itk)
+fit4 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc) + (1|YEAR2), data=data_P25_itk)
+fit5 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk)
+#fit6 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|parcelle) + (1|YEAR2), data=data_P25_itk)
+fit7 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc/parcelle) + (1|YEAR2), data=data_P25_itk)
+fit8 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc/parcelle), data=data_P25_itk)
+
+AIC(fit1, fit2, fit4, fit5, fit7,fit8)
+BIC(fit1, fit2, fit4, fit5, fit7,fit8)
+
+```
+
+Les facteurs fixes choisis la pratique, le nombre d'intervention chimique et l'interaction de ces derniers. 
+
+Les variables candidates à la construction de la structure aléatoire sont le Bloc, la parcelle et l'année.
+Les parcelles sont emboités dans la variable Bloc. 
+
+La structure aléatoire choisit par les critères AIC et BIC est celui incluant l'année (confirme ce qui a été vu sur les graphiques) et la parcelle emboité dans le bloc. 
+
+
+### Sélection du modèle final
+
+```{r,echo = FALSE, message = FALSE,results = FALSE}
+# effet fixes
+fit1 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = TRUE)
+anova(fit1)
+
+fit2 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = TRUE)
+anova(fit2)
+
+fit3 <- lmer(Rec_globale_IR ~ nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = TRUE)
+anova(fit3)
+
+fit4 <- lmer(Rec_globale_IR ~  (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = TRUE)
+anova(fit4)
+
+# AIC/BIC
+fit5 <- lmer(Rec_globale_IR ~ pratique * nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = FALSE)
+fit6 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = FALSE)
+fit7 <- lmer(Rec_globale_IR ~ nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = FALSE)
+fit8 <- lmer(Rec_globale_IR ~  (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk,REML = FALSE)
+
+AIC(fit5,fit6,fit7,fit8)
+BIC(fit5,fit6,fit7,fit8)
+
+fit_final = fit4
+
+summary(fit4)
+```
+
+Aucun facteur de la structure fixe n'est conservé après sélection de variable.
+
+### Diagnostic
+
+```{r, fig.width=8,echo = FALSE, message = FALSE,results = FALSE,fig.show='hide'}
+# diagnostic
+data_P25_itk$res <- residuals(fit_final, "pearson")
+data_P25_itk$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P25_itk, aes(x = res)) +
+            geom_histogram(bins = 10,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P25_itk, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P25_itk, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P25_itk, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data_P25_itk, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data_P25_itk, aes(y = res, x = Bloc)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Bloc"))
+
+ks.test(data_P25_itk$res, "pnorm", 0, sd(data_P25_itk$res))
+shapiro.test(data_P25_itk$res)
+bartlett.test(data_P25_itk$res,data_P25_itk$pratique)
+
+```
+
+Graphiquement, quelques départs et histogramme tendancieuse à gauche.
+Petite tendance des résidus à se regrouper dans le quart bas gauche du graphique, le test le valide assez largement cependant.
+Test, Shapiro rejette l'hypothèse de normalité, tandis que Kolgomorov l'accepte.
+
+Pas de tendance observé entre les différentes pratiques,blocs et années.
+
+
+## P42
+
+L'essai suivant contient 18 observations analysables.
+
+```{r, fig.height=9, fig.width=8, echo = FALSE,message=FALSE}
+data_P42 <- data %>% filter(essai == "P42")
+
+data_P42$sous_bloc = rep(c("1_1","1_1","1_2","1_2","2_1","2_1","2_2","2_2"),2)
+data_P42$paillis_R = factor(rep(c(0,1,0,1,1,0,1,0),2))
+
+data_P42 = data_P42 %>%
+  relocate(c("sous_bloc","paillis_R"), .after = Bloc)
+
+#data_P25_itk$parcelle2 <- as.factor(data_P25_itk$parcelle)
+
+# View(data_P25_m)
+grid.arrange(
+  ggplot(data_P42, aes(x=pratique, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P42, aes(x=nb_chimique, y=Rec_globale_IR, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique "),
+  ggplot(data_P42, aes(x=Bloc, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Bloc "),
+  ggplot(data_P42, aes(x=cycle, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Cycle"),
+  ggplot(data_P42, aes(x=sous_bloc, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Sous bloc "),
+  ggplot(data_P42, aes(x=paillis_R, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Paillis "),
+  ggplot(data_P42, aes(x=YEAR2, y=Rec_globale_IR, fill = paillis_R)) + geom_boxplot()
+  + ggtitle("Année par paillis "),
+  nrow=3)
+
+```
+
+Différence entre les pratiques et années. Et légère différence avec le sous bloc 2_2.
+Pas d'interaction en vue.
+
+### Structure aléatoire
+
+```{r,echo = FALSE, message = FALSE,results = FALSE}
+fit1 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|YEAR2), data=data_P42)
+fit2 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc), data=data_P42)
+fit3 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc:sous_bloc), data=data_P42)
+fit4 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc) + (1|YEAR2), data=data_P42)
+fit5 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc:sous_bloc) + (1|YEAR2), data=data_P42)
+fit6 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|sous_bloc), data=data_P42)
+fit7 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|parcelle), data=data_P42)
+fit8 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|parcelle) + (1|YEAR2), data=data_P42)
+fit9 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc:parcelle), data=data_P42)
+fit10 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc:sous_bloc:parcelle), data=data_P42)
+fit11 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc:sous_bloc:parcelle) + (1|YEAR2), data=data_P42)
+fit12 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc:parcelle) + (1|YEAR2), data=data_P42)
+
+AIC(fit1, fit2, fit3, fit4,fit5,fit6,fit7,fit8,fit9,fit10,fit11,fit12)
+BIC(fit1, fit2, fit3, fit4,fit5,fit6,fit7,fit8,fit9,fit10,fit11,fit12)
+```
+
+La structure aléatoire additionnant le bloc et année est choisit.
+
+
+### Sélection du modèle final
+
+
+
+```{r, echo = FALSE, message = FALSE,results = FALSE}
+# en choisissant fit1 au lieu de fit5 (sous_bloc )
+fit1 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc) + (1|YEAR2), data=data_P42)
+anova(fit1)
+fit2 <- lmer(Rec_globale_IR ~ pratique + paillis_R + (1|Bloc) + (1|YEAR2), data=data_P42)
+anova(fit2)
+fit3 <- lmer(Rec_globale_IR ~ pratique + (1|Bloc) + (1|YEAR2), data=data_P42)
+anova(fit3)
+
+fit4 <- lmer(Rec_globale_IR ~ pratique + nb_chimique + paillis_R + (1|Bloc) + (1|YEAR2), data=data_P42,REML = FALSE)
+fit5 <- lmer(Rec_globale_IR ~ pratique + paillis_R + (1|Bloc) + (1|YEAR2), data=data_P42,REML = FALSE)
+fit6 <- lmer(Rec_globale_IR ~ pratique + (1|Bloc) + (1|YEAR2), data=data_P42,REML=FALSE)
+
+AIC(fit4,fit5,fit6)
+BIC(fit4,fit5,fit6)
+
+fit_final = lmer(Rec_globale_IR ~ pratique + (1|Bloc) + (1|YEAR2), data=data_P42)
+summary(fit_final)
+
+```
+Le modèle incluant la pratique comme significatif est selectionné.
+
+### Diagnostic
+
+```{r, fig.width=8,echo = FALSE, message = FALSE,results = FALSE,fig.show='hide'}
+# diagnostic
+data_P42$res <- residuals(fit_final, type = "pearson")
+data_P42$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P42, aes(x = res)) +
+            geom_histogram(bins = 5,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P42, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P42, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P42, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data_P42, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data_P42, aes(y = res, x = paillis_R)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Paillis"))
+
+ks.test(data_P42$res, "pnorm", 0, sd(data_P42$res))
+shapiro.test(data_P42$res)
+bartlett.test(data_P42$res,data_P42$pratique)
+
+```
+
+Normalité et variance sont OKs (validés graphiquement et par les trois tests).
+
+## P12
+
+Cet essai ne contient pas de répétition. Il n'est donc pas analysable.
+
+# DISCUSSION 
+
+Individuellement, on constate qu'en général les pratiques dans les différents essais ont un recouvrement significativement inférieur au témoin enherbé. 
+Sauf pour la P25 ITK où aucun facteur fixe n'est retenu dans le modèle final.
+
+Le cycle de repousse est significatif pour la P25 Montagne (inférieur également).
+
+L'année explique la variance pour tout les essais sauf la P25 Montagne.
+
+# ALL
+
+### Statistique descriptive
+
+On commence par dessiner quelques graphiques afin d'avoir un premier aperçu des données.
+
+```{r, fig.width=10,echo = FALSE,message=FALSE}
+grid.arrange(
+  ggplot(data, aes(x=essai, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Essai "),
+    ggplot(data, aes(x=essai, y=Rec_globale_IR, color = pratique)) + geom_boxplot()
+  + ggtitle("Essai par pratique"),
+  ggplot(data, aes(x=pratique, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data, aes(x=cycle, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Cycle "),
+  ggplot(data, aes(x=cycle, y=Rec_globale_IR, color=pratique)) + geom_boxplot()
+  + ggtitle("Cycle par pratique "),
+  ggplot(data, aes(x=cycle_detailed, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Cycle détaillé"),
+nrow=2)
+
+grid.arrange(
+  ggplot(data, aes(x=Bloc, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Bloc"),
+  ggplot(data, aes(x=Bloc, y=Rec_globale_IR, color = pratique)) + geom_boxplot()
+  + ggtitle("Bloc par pratique"),
+  ggplot(data, aes(x=nb_chimique, y=Rec_globale_IR, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique "),
+  ggplot(data, aes(x=YEAR2, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Année"),
+  ggplot(data, aes(x=parcelle, y=Rec_globale_IR)) + geom_boxplot()
+  + ggtitle("Parcelle"),
+nrow=2)
+```
+
+```{r,fig.width= 9}
+p1 =  ggplot(data, aes(x=pratique, y=Rec_globale_IR)) + geom_boxplot() +
+  ggtitle("Pratique ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p2 =  ggplot(data, aes(x=essai, y=Rec_globale_IR)) + geom_boxplot() +
+  ggtitle("Essai ") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2, l = 2))
+
+p3 = ggplot(data, aes(x=cycle, y=Rec_globale_IR)) + geom_boxplot() +
+  ggtitle("Cycle ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p4 = ggplot(data, aes(x=Bloc, y=Rec_globale_IR)) + geom_boxplot() +
+  ggtitle("Bloc") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.margin = margin( l = 2))
+
+ggarrange(p1,p2,p3,p4,common.legend = TRUE,nrow = 2, ncol = 2)
+
+
+
+
+p1 =  ggplot(data, aes(x=essai, y=Rec_globale_IR, color = pratique)) + geom_boxplot() +
+  ggtitle("Essai par pratique") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p2 =  ggplot(data, aes(x=cycle, y=Rec_globale_IR, color=pratique)) + geom_boxplot() +
+  ggtitle("Cycle par pratique ") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2, l = 2))
+
+p3 = ggplot(data, aes(x=nb_chimique, y=Rec_globale_IR, color=pratique)) + geom_point() + geom_smooth(method="lm") +
+  ggtitle("Nb d'intervention chimique ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p4 = ggplot(data, aes(x=YEAR2, y=Rec_globale_IR)) + geom_boxplot() +
+  ggtitle("Année") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.margin = margin( l = 2))
+
+ggarrange(p1,p2,p3,p4,common.legend = TRUE,nrow = 2, ncol = 2,legend = "right")
+```
+
+Différence entre les essais et les années, corrélations positives entre le nb d'intervention chimique et le recouvrement (sauf la pratique TP).
+
+### Structure aléatoire
+
+Même principe que le rendement et l'ifth :
+
+```{r, echo = TRUE}
+# essai en fixe
+fit1 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle) + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+fit2 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+fit3 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+fit4 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc), data=data,weights = weight)
+
+fit5 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle) + (1|YEAR2), data=data,weights = weight)
+
+fit6 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle), data=data,weights = weight)
+
+fit7 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|YEAR2), data=data,weights = weight)
+
+fit8 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|YEAR2), data=data,weights = weight)
+
+fit9 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|essai:Bloc), data=data,weights = weight)
+
+fit10 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle), data=data,weights = weight)
+
+fit11 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc), data=data,weights = weight)
+
+fit12 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|YEAR2), data=data,weights = weight)
+
+fit13 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+```
+
+On procède par une comparaison de ces treize modèles par AIC/BIC, voici leurs résultats :
+
+
+```{r, results = TRUE}
+AIC(fit1,fit2, fit3, fit4, fit5, fit6,fit7,fit8, fit9, fit10,fit11,fit12,fit13)
+BIC(fit1,fit2, fit3, fit4, fit5, fit6,fit7,fit8, fit9, fit10,fit11,fit12,fit13)
+
+#texreg(list(fit1,fit2,fit3,fit4,fit5,fit6,fit7)) # latex
+#knitr::kable(list(a, b$BIC))
+
+```
+
+La structure contenant la parcelle emboité dans le bloc lui même emboité dans l'essai est choisit par les critères AIC et BIC.
+
+### Selection modèle final
+
+```{r}
+fit1 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle), data=data,weights = weight)
+anova(fit1,type="2")
+
+# critères AIC,BIC
+fit2 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle), data=data,weights = weight,REML = FALSE)
+fit3 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique + (1|essai:Bloc:parcelle), data=data,weights = weight,REML = FALSE)
+fit4 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:essai + pratique:cycle + cycle + (1|essai:Bloc:parcelle), data=data,weights = weight,REML = FALSE)
+fit5 <- lmer(Rec_globale_IR ~ pratique + essai + pratique:cycle + cycle + (1|essai:Bloc:parcelle), data=data,weights = weight,REML = FALSE)
+fit6 <- lmer(Rec_globale_IR ~ pratique + essai + cycle + (1|essai:Bloc:parcelle), data=data,weights = weight,REML = FALSE)
+fit7 <- lmer(Rec_globale_IR ~ pratique + essai + (1|essai:Bloc:parcelle), data=data,weights = weight,REML = FALSE)
+
+AIC(fit2,fit3,fit4,fit5,fit6,fit7)
+BIC(fit2,fit3,fit4,fit5,fit6,fit7)
+
+```
+
+Le modèle ayant le plus parcimonieux choisit par une des deux méthode est choisit : 
+il contient toutes les effets possibles.
+
+Voici le tableau d'analyse de variance de type $II$ avec les p-valeurs des effets significatifs :
+
+```{r, results = TRUE}
+fit_final <- fit1
+knitr::kable(anova(fit_final,type="2"))
+```
+
+
+On peut alors écrire la formule complète du modèle ainsi :
+
+
+$$
+REC_{ijklmn} \sim \mu + P_i + C_j + E_k + PC_{ij} + PE_{ik} + EN_{kl} + Pa_{kmn} + \epsilon_{ijklmn}
+$$
+
+
+$$
+A_m \sim N(0,\sigma^2_M),m = 1...M
+$$
+
+$$
+Pa_{kmn} \sim N(0,\sigma^2_{KMN}),k = 1...K,m = 1...M, n = 1...N
+$$
+
+
+
+$$
+\epsilon \sim N(0,\sigma^2_{\epsilon}), \forall i,j,k,l,m,n
+$$
+
+
+$REC_{ijklmn}$ : Le taux de recouvrement de l'observation $ijklmn$ en pourcentage
+
+$\mu$ : l'intercept 
+
+$P_i$ : l'effet de la pratique i, $i = 1...4$ et $P_1 = 0$
+
+$C_j$ : l'effet du cycle j, $j = 1,2$ et $C_1 = 0$
+
+$E_k$ : l'effet de l'essai k, $k = 1,4$ et $E_1 = 0$
+
+$PC_{ij}$ : l'effet de l'interaction pratique:cycle i,j, $i = 1...4$,$j = 1...2$ et $PC_{1,1} = 0$
+
+$PE_{ik}$ : l'effet de l'interaction pratique:essai i,k, $i = 1...4$,$k = 1...4$ et $PE_{1,1} = 0$
+
+$EN_{kl}$ : l'effet de l'interaction essai:nb_intervention_chimique k,l, $k = 1...4$,$l = 1...8$ et $EN_{1,1} = 0$
+
+$EBPa_{kmn}$ : l'effet de la parcelle n emboité dans le bloc m, emboité dans l'essai k, $E = 1...4$,$B = 1...4$,$Pa = 1...26$ et $EBPa_{1,1,1} = 0$
+
+$\epsilon_{ijklmn}$ l'erreur résiduelle à $ijklmn$
+
+```{r}
+summary(fit_final)
+
+# summary of fit_final
+a = summary(fit_final)
+xtable(a$coefficients)
+```
+
+Voici les graphiques d'interaction permettant de constater l'effet de ces dernières :
+
+```{r}
+# interaction plot
+par(mfrow=c(2,2))
+with(data, {
+interaction.plot(essai, pratique, Rec_globale_IR,col=topo.colors(5), main = "pratique x essai")
+interaction.plot(cycle, pratique, Rec_globale_IR,col=topo.colors(5), main = "pratique x cycle")
+interaction.plot(nb_chimique, essai, Rec_globale_IR,col=topo.colors(5), main = "nb_chimique x essai")
+})
+
+data %>% 
+  ggplot() +
+  aes(x = nb_chimique, y = Rec_globale_IR, group = essai, color = essai) +
+  geom_point(color = "grey", alpha = .7) +
+    geom_smooth(method = "lm")
+```
+
+Très peu de différence pour le Broyage entre le cycle de plantation et de repousse.
+
+Concernant l'interaction entre les essais et les pratiques, le sarclage semble être la pratique ayant le plus haut taux de recouvrement quelque soit les essais (sauf pour la P25 ITK).
+
+Tendance négative entre l'essai P25 ITK et le nombre d'intervention chimique. C'est assez similaire pour l'essai P12, on aperçoit cependant une légère remonté à la troisième intervention.
+
+
+### Diagnostic
+
+```{r}
+data$res <- residuals(fit_final, "pearson")
+data$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data, aes(x = res)) +
+            geom_histogram(bins = 50,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data, aes(y = res, x = essai)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Essai"),
+          ggplot(data, aes(y = res, x = Bloc)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Bloc"))
+
+ks.test(data$res, "pnorm", 0, sd(data$res))
+shapiro.test(data$res)
+bartlett.test(data$res,data$pratique)
+```
+
+Graphiquement les diagnostics des hypothèses sont acceptées.
+Cela est confirmé par les deux tests de normalités, la test de l'homogénéité des variances rejettent cependant l'hypothèse nulle.
+
+
+### Post-Hoc
+
+Voici les estimations de la variance de l'effet aléatoire année et la variance résiduelle :
+
+```{r, echo=FALSE, results = TRUE}
+knitr::kable(VarCorr(fit_final)) # estimate of the variance parameter
+```
+
+L'estimation de la variance du facteur aléatoire "essai:bloc:parcelle" se retrouve bien dans l'intervalle de confiance compilé par la vraisemblance :
+
+```{r, results = TRUE}
+fit_final_profile <- profile(fit_final, which=1:2, signames=FALSE) # likelihood CI
+knitr::kable(confint(fit_final_profile))
+```
+
+
+
+On compile maintenant les moyennes ajustées par la méthode de Tukey pour l'interaction entre la pratique et le cycle (les moyennes ajustées ici ne peuvent être totalement compilés à cause de la présence d'interactions dans le modèles) :
+
+```{r, results = TRUE}
+tk = emmeans(fit_final, pairwise ~ pratique | cycle, adjust="tukey")
+```
+
+Les mêmes résultats pour cette fois ci l'interaction de la pratique avec l'essai :
+
+```{r, echo=FALSE, results=TRUE}
+tk_2 = emmeans(fit_final, pairwise ~ pratique | essai,adjust="tukey")
+```
+
+
+```{r, echo=FALSE,results=TRUE}
+emmeans(fit_final, pairwise ~ nb_chimique | essai,adjust="tukey")
+xtable(tk_3$contrasts)
+```
+
+Un graphique est plus parlant pour montrer l'effet de l'estimation de ces différentes interactions, ici entre la pratique et l'essai :
+
+```{r}
+emmip(fit_final, as.character(nb_chimique) ~ essai)
+```
+
+
+```{r, echo = FALSE,results=TRUE}
+emmip(fit_final, pratique ~ essai) +
+  theme(legend.position="none")
+
+```
+
+Comme vu précédemment, il semblerait ici que le broyage permet d'avoir un taux de recouvrement inférieur aux autres pratiques.
+La PDS produit de bons résultats également, cependant elle a un taux élevé pour la P25 Montagne.
+Pour le sarclage c'est plus mitigé, elle a toujours une estimation plus élevé ou égale au témoin propre.
+
+```{r}
+emmip(fit_final, pratique ~ cycle) +
+  theme(#axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank())
+```
+
+
+# DISCUSSION
+
+Pour l'analyse global plusieurs interactions viennent compliqué l'analyse de l'effet des pratiques.
+La PDS et le Broyage produisent des résultats plutôt inférieur au témoin propre dans les différents essais. 
+Tandis que le Sarclage donne des taux de recouvrement toujours supérieurs au témoin propre.
+Le cycle de repousse donne le résultat déjà connu d'un recouvrement significativement plus faible que le cycle de plantation.
+
+
+# LATEX
+
+$$
+REC_{ijklmnop} \sim \mu + P_i + C_j + E_k + PC_{ij} + PE_{ik} + EN_{kl} + E_o + B_m + Pa_n + EBPa_{omn} + A_p + \epsilon_{ijklmnop}
+$$
+
+$$
+A_p \sim N(0,\sigma^2_P),p = 1...P
+$$
+$$
+E_o \sim N(0,\sigma^2_O),o = 1...O
+$$
+
+$$
+B_m \sim N(0,\sigma^2_M),m = 1...M
+$$
+
+$$
+Pa_n \sim N(0,\sigma^2_N),n = 1...N
+$$
+
+$$
+EBPa_{omn} \sim N(0,\sigma^2_{OMN}),o = 1...O,m = 1...M, n = 1...N
+$$
+
+
+
+$$
+\epsilon \sim N(0,\sigma^2_{\epsilon}), \forall i,j,k,l,m,n,o,p
+$$
+
+
+$Y_{ijklmnop}$ : La variable continue étudié de l'observation $ijklmnop$ en pourcentage
+
+$\mu$ : l'intercept 
+
+$P_i$ : l'effet de la pratique i, $i = 1...4$ et $P_1 = 0$
+
+$C_j$ : l'effet du cycle j, $j = 1,2$ et $C_1 = 0$
+
+$E_k$ : l'effet de l'essai k, $k = 1,4$ et $E_1 = 0$
+
+$PC_{ij}$ : l'effet de l'interaction pratique:cycle i,j, $i = 1...4$,$j = 1...2$ et $PC_{1,1} = 0$
+
+$PE_{ik}$ : l'effet de l'interaction pratique:essai i,k, $i = 1...4$,$k = 1...4$ et $PE_{1,1} = 0$
+
+$EN_{kl}$ : l'effet de l'interaction essai:nb_intervention_chimique k,l, $k = 1...4$,$l = 1...8$ et $EN_{1,1} = 0$
+
+$E_o$ : l'effet aléatoire de l'essai o, $o = 1...4$ et $O_1 = 0$
+
+$B_m$ : l'effet aléatoire du Bloc m, $m = 1...4$ et $M_1 = 0$
+
+$Pa_n$ : l'effet aléatoire de la parcelle n, $n = 1...26$ et $N_1 = 0$
+
+$A_p$ : l'effet de l'année p, $p = 1...7$ et $A_1 = 0$
+
+$EBPa_{kmn}$ : l'effet aléatoire de la parcelle n emboité dans le bloc m, emboité dans l'essai o, $E = 1...4$,$B = 1...4$,$Pa = 1...26$ et $EBPa_{1,1,1} = 0$
+
+$\epsilon_{ijklmnop}$ l'erreur résiduelle à $ijklmnop$
+
+

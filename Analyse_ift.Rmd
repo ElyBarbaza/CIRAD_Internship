@@ -1,0 +1,1051 @@
+---
+title: "Analyse de l'effet des techniques alternatives sur la dose d'ift de la canne à sucre"
+author: BARBAZA Elysé
+output: 
+  word_document:
+    toc: yes
+    toc_depth: '3'
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE, message = FALSE,dpi = 300, results = FALSE)
+```
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+library(tidyverse)
+library(gridExtra)
+library(openxlsx)
+library(nlme) # lme
+library(lme4) # lmer
+library(lmerTest)
+library(cowplot) # plotgrid
+library(lsmeans)
+library(multcomp) # 
+library(effects) # all effects
+library(pbkrtest)
+library(xtable)
+library(texreg) # tables for lmer model
+library(languageR)
+library(flextable) # tables for word 
+library(huxtable)
+library(modelsummary)
+library(ggpubr)
+#library(lattice) # qqmath
+```
+
+# INTRODUCTION
+
+De manière très similaire au rendement, l'objectif de ce rapport sera de présenter les premiers résultats de l'analyse de l'ift (Indice de Fréquence d'application des herbicides).
+Plus précisément, l'effet des différentes pratiques de désherbage alternatives au chimique sur ce dernier.
+
+Les pratiques analysés seront les mêmes que pour le rendement, le sarclage, le broyage et les plantes de services comparés au témoin propre.
+Pareillement, autre que l'effet des pratiques, le cycle et le nombre d'intervention chimique seront testés dans les différents modèles.
+
+La même démarche sera utilisé : chaque essai va être analysé individuellement afin de déceler certaines spécificités qui pourront aiguiller sur l'analyse globale comprenant tout les essais.
+
+Les modèles linéaires simples et mixtes seront utilisés pour répondre à cet objectif.
+
+# Chargement des données globales
+
+```{r,load data, echo = FALSE}
+data <- read.xlsx("~/malherbologie/datasets/Objectif_rdt_rec.xlsx")
+# selecting essays needed
+data <- data %>% filter(essai %in% c("P12", "P25_ITK", "P25_montagne", "P42"), 
+                        pratique %in% c("TP", "PDS", "Sarclage", 'Broyage')) %>%
+  mutate(YEAR2 = substr(YEAR, 1, 4)) %>%
+  drop_na(IFTH,nb_chimique)
+
+data = data %>%
+  mutate(
+    essai = case_when(
+      essai == "P25_montagne" ~ "P25_M",
+      TRUE ~ essai
+    ))
+
+# putting P25_ITK as first factor
+data$essai <- factor(data$essai, levels = c("P25_ITK", "P25_M", "P42", "P12"))
+
+# putting TP as first factor
+data$pratique <- factor(data$pratique, levels = c("TP", "Broyage", "PDS", "Sarclage"))
+
+# changing Bloc for P42
+data = data %>% 
+   mutate(
+    Bloc = case_when(
+      essai == "P42" & parcelle %in% c("1","2") ~ 1,
+      essai == "P42" & parcelle %in% c("3","4") ~ 2,
+      essai == "P42" & parcelle %in% c("5","6") ~ 3,
+      essai == "P42" & parcelle %in% c("7","8") ~ 4,
+      TRUE ~ Bloc
+    ))
+
+# converting some variables to factor
+data$Bloc <- factor(data$Bloc)
+
+# adding weights
+data = data %>%
+  mutate(
+    weight = case_when(
+      essai == "P25_M" ~ round(1/0.01515),
+      essai == "P25_ITK" ~ round(1/0.2496),
+      essai == "P42" ~ round(1/0.2496),
+      essai == "P12" ~ round(1/0.1885)
+    ))
+
+sum(data$weight)
+
+data$weight = data$weight/sum(data$weight)*85
+
+# missing values TP P12
+data = data %>%
+  mutate(
+    nb_chimique = case_when(
+      essai == "P12" & YEAR == "2018_2019" & pratique == "TP" ~ 3,
+      TRUE ~ nb_chimique
+    ))
+
+
+data %>%
+  dplyr::group_by(essai,Bloc,parcelle) %>%
+  count()
+
+```
+
+# STAT DESCRIPTIVE
+
+Les essais analysés seront les mêmes que pour le rendement : la P12, la P25 ITK, la P25 Montagne et la P42.
+En filtrant cela avec les bonnes pratiques et les données manquantes, on obtient finalement 85 (119 pour le rendement et 144 pour le recouvrement) observations analysables.
+On remarque notamment l'année 2012-2013 pour l'essai P12 qui contient pas de données d'ift. De plus pour l'année 2013-2014, les pratiques alternatives (Sarclage et Broyage) n'ont également pas les données.
+
+
+```{r, fig.width=9}
+plot_grid(
+data %>%
+  ggplot(aes(x = essai, fill = pratique)) +
+  geom_bar() +
+  ggtitle("Nombre d'observations par essais par pratique") +
+  xlab("Essai"),
+data %>%
+  ggplot(aes(x = YEAR2, fill = essai)) +
+  geom_bar() +
+  ggtitle("Nombre d'observations par année par essais") +
+  xlab("Année")) 
+```
+
+
+
+## P25 Montagne
+
+L'essai suivant est un plan en bloc complet de deux répétitions avec 24 observations au total. 
+
+```{r, STAT Descriptive 2}
+# P25_montagne
+
+data_P25_m <- data %>% filter(essai == "P25_M")
+# View(data_P25_m)
+plot_grid(
+  ggplot(data_P25_m, aes(x=pratique, y=IFTH)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  # ggplot(data_P25_m, aes(x=cycle, y=IFTH)) + geom_boxplot(),
+  ggplot(data_P25_m, aes(x=cycle, y=IFTH, color=pratique)) + geom_boxplot()
+  + ggtitle("Cycle par pratique"),
+  ggplot(data_P25_m, aes(x=nb_chimique, y=IFTH, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique par pratique"),
+  ggplot(data_P25_m, aes(x=Bloc, y=IFTH)) + geom_boxplot()
+  + ggtitle("Bloc"),
+  ggplot(data_P25_m, aes(x=YEAR2, y=IFTH)) + geom_boxplot()
+  + ggtitle("Année") +
+     xlab("Année"),
+nrow=2)
+
+```
+
+Graphiquement, il semble y avoir une différence entre le TP et les deux autres pratiques.
+On remarque également une interaction entre les pratiques (Sarclage) et le cycle de la canne.
+
+On remarque une corrélation positive entre la valeur d'ift et le nombre d'intervention chimique (très logique).
+Les deux blocs sont identiques, en effet, les doses ne sont pas différenciés entre les deux blocs.
+L'année est corrélée négativement avec l'IFT, ceci est logique car correspond au cycle de la canne.
+
+### Structure aléatoire
+
+```{r Structure_aléatoire_p25m, echo = FALSE}
+# Sélection de la structure aléatoire
+fit1 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|YEAR2), data=data_P25_m)
+fit2 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|Bloc), data=data_P25_m)
+fit3 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|Bloc/parcelle), data=data_P25_m)
+fit4 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_m)
+fit5 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|Bloc) + (1|YEAR2), data=data_P25_m)
+fit6 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|Bloc/parcelle) + (1|YEAR2), data=data_P25_m)
+fit7 <- lmer(IFTH ~ pratique * cycle + nb_chimique + (1|parcelle) + (1|YEAR2), data=data_P25_m)
+
+AIC(fit1, fit2, fit3, fit4, fit5, fit6, fit7) # fit1
+BIC(fit1, fit2, fit3, fit4, fit5, fit6, fit7) # fit1
+```
+
+Les facteurs fixes inclus dans les modèles sont la pratique, le cycle, leur interaction et le nombre d'intervention chimique.
+Le modèle incluant l'année uniquement en aléatoire est choisit grâce aux critères AIC et BIC.
+
+### Comparaison fixe
+
+```{r Comparaison_fixe_p25m, echo = FALSE}
+# Comparaison avec la structure fixe
+fit0 <-  gls(IFTH ~ pratique * cycle + nb_chimique, data=data_P25_m)
+fit1 <- lme(IFTH ~ pratique * cycle + nb_chimique , random =~1|YEAR2, data=data_P25_m)
+
+AIC(fit0, fit1)
+BIC(fit0, fit1)
+
+# La meilleur structure est celle avec effet aléatoire
+```
+
+La comparaison avec le modèle n'incluant que les facteurs fixes suggère que celui-ci explique moins bien la variance que le modèle incluant les effets aléatoires choisit.
+
+### Selection du modèle final
+
+```{r Selection_du_modèle_final,echo = FALSE, message = FALSE,results = FALSE}
+fit1 <- lme(IFTH ~ pratique * cycle + nb_chimique , random =~1|YEAR2, data=data_P25_m, method = "ML")
+anova(fit1)
+
+fit_final <- lme(IFTH ~ pratique * cycle + nb_chimique , random =~1|YEAR2, data=data_P25_m, method = "REML") # choix de garder fit2 ici 
+
+fit_final = lmer(IFTH ~ pratique * cycle + nb_chimique + (1|YEAR2), data=data_P25_m, REML = TRUE)
+
+
+```
+
+En effectuant une anova sur le modèle incluant tout les facteurs, on remarque que ces derniers sont tous significatifs à part le cycle. On le garde cependant car l'interaction est significatif.
+
+```{r,echo = FALSE}
+summary(fit_final)
+```
+
+Ce qui a été vu sur les graphiques est confirmé par les analyses ici, en effet la pratique de la PDS et du sarclage influence significativement la valeur de l'ift. Respectivement -4.7 et -1.3 kg/ha.
+Le nombre d'intervention chimique influence également négativement la dose d'ift avec -0.44.
+Concernant les interactions, la pratique du Sarclage avec le cycle de repousse donne une estimation d'environ -2.67 kg/ha.
+L'interaction entre la PDS et le cycle influence elle positivement la dose d'ift avec 1.05.
+Le cycle de repousse est le seul facteur à ne pas être significatif à 5%.
+
+### Diagnostic
+
+```{r Diagnostic, fig.width=8,echo = FALSE, message = FALSE}
+# diagnostic
+data_P25_m$res <- residuals(fit_final) # res pas standardisés 
+data_P25_m$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P25_m, aes(x = res)) +
+            geom_histogram(bins = 10,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P25_m, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P25_m, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P25_m, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data_P25_m, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data_P25_m, aes(y=res, x=nb_chimique)) +
+            geom_point() + geom_smooth(method="lm") +
+            labs(title = "Nb chimique"))
+
+ks.test(data_P25_m$res, "pnorm", 0, sd(data_P25_m$res))
+shapiro.test(data_P25_m$res)
+bartlett.test(data_P25_m$res,data_P25_m$pratique)
+
+```
+
+
+En observant les données des résidus, on remarque que ces derniers semblent être légèrement anormalement distribués. Il y a quelques départs sur le qqplot et l'histogramme n'est pas formellement concluant.
+Le test de Kolmogorov accepte l'hypothèse nulle avec un alpha à 0.05, cependant ce n'est pas le cas pour le test de Shapiro qui le rejette à 0.012.
+
+De plus l'homogénéité des variances n'est également pas accepté, avec le test de Bartlett qui rejette formellement l'hypothèse nulle.
+
+Les résidus par pratiques montrent que les médianes sont assez similaires, cependant les boxplots de la PDS et du sarclage sont plus étalés.
+De même pour les années 2018 et 2019 par rapport à 2017.
+
+Ces résultats sont surement dû au faible nombre d'observations de l'échantillon analysé.
+
+## P25 ITK
+
+L'essai suivant est un plan en bloc complet de quatre répétitions avec 36 observations au total (moitié moins en comparaison avec les données de rendement).
+
+
+```{r STAT_Descriptive,fig.width=9, fig.height=8, echo = FALSE,message=FALSE}
+data_P25_itk <- data %>% filter(essai == "P25_ITK")
+
+#data_P25_itk$parcelle2 <- as.factor(data_P25_itk$parcelle)
+
+# View(data_P25_m)
+grid.arrange(
+  ggplot(data_P25_itk, aes(x=pratique, y=IFTH)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P25_itk, aes(x=parcelle, y=IFTH)) + geom_boxplot()
+  + ggtitle("Parcelle "),
+  ggplot(data_P25_itk, aes(x=nb_chimique, y=IFTH, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique par pratique"),
+  ggplot(data_P25_itk, aes(x=Bloc, y=IFTH)) + geom_boxplot()
+  + ggtitle("Bloc "),
+  ggplot(data_P25_itk, aes(x=YEAR2, y=IFTH)) + geom_boxplot()
+  + ggtitle("Année "),
+  nrow=2)
+
+# cycle non inclus car uniquement repousse et cycle_detailed confondu avec année
+```
+
+Il semble y avoir une différence entre les pratiques, notamment TP qui reçoit une dose plus importante que le reste. En revanche, les médianes restent tous assez proches, et les boxplots se chevauchent (sauf pour la TP).
+Le nombre d'intervention chimique est toujours corrélé positivement à la dose d'ift.
+Finalement, on remarque une très légère différence entre les années, cependant les boxplots se chevauchent.
+
+### Structure aléatoire
+
+```{r Structure_aléatoire_p25itk,echo = FALSE, message = FALSE,results = FALSE}
+fit1 <- lmer(IFTH ~ pratique + nb_chimique + (1|YEAR2), data=data_P25_itk)
+fit2 <- lmer(IFTH ~ pratique + nb_chimique + (1|Bloc), data=data_P25_itk)
+fit3 <- lmer(IFTH ~ pratique + nb_chimique + (1|Bloc) + (1|YEAR2), data=data_P25_itk)
+fit5 <- lmer(IFTH ~ pratique + nb_chimique + (1|Bloc:parcelle) + (1|YEAR2), data=data_P25_itk)
+fit6 <- lmer(IFTH ~ pratique + nb_chimique + (1|parcelle) + (1|YEAR2), data=data_P25_itk)
+
+AIC(fit1, fit2, fit3, fit4, fit5, fit6)
+BIC(fit1, fit2, fit3, fit4, fit5, fit6)
+
+# we keep the best AIC/BIC with non boundary
+```
+
+Les facteurs fixes choisits sont l'addition de la pratique et le nombre d'intervention chimique. Au vu des données manquantes et des graphiques, une éventuelle interaction ne sera pas étudiée ici.
+
+Les variables candidates à la construction de la structure aléatoire sont le Bloc, la parcelle et l'année.
+Les parcelles sont emboités dans la variable Bloc. 
+
+La structure aléatoire choisit par les critères AIC et BIC est celui incluant l'année. Ce qui confirme ce qui a été vu précédemment sur les graphiques.
+
+### Selection du modèle final
+
+```{r Sélection_du_modèle_final_p25itk,echo = FALSE, message = FALSE,results = FALSE}
+# modèle final
+fit1 <- lmer(IFTH ~ pratique + nb_chimique + (1|YEAR2), data=data_P25_itk, REML = FALSE)
+anova(fit1)
+
+fit_final = lmer(IFTH ~ pratique + nb_chimique + (1|YEAR2), data=data_P25_itk, REML = TRUE)
+```
+
+Les facteurs de pratiques et du nombre d'intervention chimique sont bien significatifs.
+
+```{r,echo = FALSE}
+summary(fit_final)
+```
+
+Les pratiques (Broyage,PDS et Sarclage) sont tous significatives et influence négativement la dose d'ift (resp. -0.91, -063 et -0.9799 kg/ha).
+Le nombre d'intervention chimique lui influence positivement la valeur d'ift avec environ 0.86 kg/ha. Ce qui est en contradiction avec l'essai précédent, la P25 Montagne dont le facteur du nombre d'intervention chimique, influence lui négativement la valeur d'ift.
+
+### Diagnostic
+
+```{r Diagnostic_p25itk, fig.width=8,echo = FALSE, message = FALSE,results = FALSE,fig.show='hide'}
+# diagnostic
+data_P25_itk$res <- residuals(fit_final, "pearson")
+data_P25_itk$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P25_itk, aes(x = res)) +
+            geom_histogram(bins = 10,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P25_itk, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P25_itk, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P25_itk, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data_P25_itk, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data_P25_itk, aes(y = res, x = nb_chimique)) +
+            geom_point(fill = "lightblue") + 
+            geom_smooth(method="lm") +
+            labs(title = "Nb chimique"))
+
+ks.test(data_P25_itk$res, "pnorm", 0, sd(data_P25_itk$res))
+shapiro.test(data_P25_itk$res)
+bartlett.test(data_P25_itk$res,data_P25_itk$pratique)
+```
+
+L'hypothèse de normalité est assez fragile ici également, il a quelques départs sur le qqplot et l'histogramme n'est pas extrêmement concluant. Ainsi le test de Shapiro rejette l'hypothèse nulle tandis que le Kolgomorov l'accepte.
+
+Concernant l'homogénéité de la variance, celle-ci semble correcte graphiquement. Cependant le test de Bartlett rejette assez fortement cette hypothèse.
+
+Les médianes par pratiques sont assez similaires sauf pour TP, et le boxplot de ce dernier est également bien plus étalé.
+On notifie une légère tendance négative des résidus au fil des années.
+
+
+## P42
+
+L'essai suivant contient 12 observations analysables (identique à l'analyse du rendement).
+
+```{r STAT_Descriptive_p42, fig.height=9, fig.width=8, echo = FALSE,message=FALSE}
+data_P42 <- data %>% filter(essai == "P42")
+
+data_P42$sous_bloc = rep(c("1_1","1_1","1_2","2_1","2_1","2_2"),2)
+data_P42$paillis_R = factor(rep(c(0,1,0,1,0,0),2))
+
+data_P42 = data_P42 %>%
+  relocate(c("sous_bloc","paillis_R"), .after = Bloc)
+
+#data_P25_itk$parcelle2 <- as.factor(data_P25_itk$parcelle)
+
+# View(data_P25_m)
+grid.arrange(
+  ggplot(data_P42, aes(x=pratique, y=IFTH)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data_P42, aes(x=nb_chimique, y=IFTH, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique "),
+  ggplot(data_P42, aes(x=Bloc, y=IFTH)) + geom_boxplot()
+  + ggtitle("Bloc "),
+  ggplot(data_P42, aes(x=cycle, y=IFTH)) + geom_boxplot()
+  + ggtitle("Cycle"),
+  ggplot(data_P42, aes(x=sous_bloc, y=IFTH)) + geom_boxplot()
+  + ggtitle("Sous bloc "),
+  ggplot(data_P42, aes(x=paillis_R, y=IFTH)) + geom_boxplot()
+  + ggtitle("Paillis "),
+  ggplot(data_P42, aes(x=YEAR2, y=IFTH, fill = paillis_R)) + geom_boxplot()
+  + ggtitle("Année par paillis "),
+  ggplot(data_P42, aes(x=parcelle, y=IFTH)) + geom_boxplot()
+  + ggtitle("Parcelle "),
+  nrow=3)
+
+```
+
+Bonne différence entre les pratiques et entre les paillis.
+Il y a étrangement une corrélation négative entre le nombre d'intervention chimique et la dose d'ift.
+L'effet cycle et année sont en confusion avec l'effet pratique de par l'agencement de l'expérimentation. Il ne seront pas pris en compte dans le choix du modèle.
+De part ce même argument, aucun effet d'interaction n'est testé au sein des pratiques.
+
+### Structure aléatoire
+
+Pour composer la structure aléatoire de cet essai, les combinaisons de l'année, de la parcelle, du bloc et du sous bloc sont testés. 
+Les effets fixes sont additionnés (pratique, nombre chimique et paillis), aucune interaction n'est testé ici.
+L'année n'est pas intégré car il est confondu avec le cycle. Et il est connu que le cycle de plantation/repousse influence grandement le rendement.
+
+```{r Structure_aléatoire_p42,echo = FALSE, message = FALSE,results = FALSE}
+#fit1 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc), data=data_P42)
+#fit2 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc/sous_bloc), data=data_P42)
+#fit3 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc/sous_bloc), data=data_P42)
+
+#AIC(fit1, fit2, fit3, fit4)
+#BIC(fit1, fit2, fit3, fit4) # boundary lorsque on rajoute l'effet bloc , on choisit fit2
+#anova(fit1)
+#summary(fit1)
+
+# perfect fit YEAR en fixe, do not converge en aléatoire
+# comment prendre en compte l'année ?
+# pas de convergence
+# année en fixe
+# nb obs ?
+
+fit1 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc), data=data_P42)
+fit2 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc:sous_bloc), data=data_P42)
+fit3 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|sous_bloc), data=data_P42)
+fit4 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|parcelle), data=data_P42)
+fit5 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc:parcelle), data=data_P42)
+fit6 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc/parcelle), data=data_P42)
+fit7 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc:sous_bloc:parcelle), data=data_P42)
+fit8 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc/sous_bloc/parcelle), data=data_P42)
+fit9 <- lmer(IFTH ~ pratique + nb_chimique + paillis_R + (1|Bloc/sous_bloc), data=data_P42)
+
+
+AIC(fit1, fit2, fit3, fit4,fit5,fit6,fit7,fit8,fit9)
+BIC(fit1, fit2, fit3, fit4,fit5,fit6,fit7,fit8,fit9)
+```
+
+
+La structure aléatoire choisit est celle ayant uniquement le Bloc.
+
+
+### Comparaison avec la structure fixe
+
+Une comparaison avec la structure uniquement fixe est possible ici.
+
+```{r Comparaison_fixe_P42}
+# effet fixes
+fit1 <- lme(IFTH ~ pratique + nb_chimique + paillis_R , random =~1|Bloc, data=data_P42)
+
+fit0 <- gls(IFTH ~ pratique + nb_chimique + paillis_R, data=data_P42)
+
+AIC(fit0, fit1)
+BIC(fit0, fit1) 
+```
+
+La structure fixe est choisit par les critères AIC/BIC.
+
+### Selection du modèle final
+
+
+```{r Selection_du_modèle_final_P42, echo = FALSE, message = FALSE,results = FALSE}
+fit1 <-  lm(IFTH ~ pratique + nb_chimique + paillis_R, data=data_P42)
+anova(fit1)
+
+fit2 <-  lm(IFTH ~ pratique + nb_chimique, data=data_P42)
+anova(fit2)
+
+fit3 <-  lm(IFTH ~ pratique, data=data_P42)
+anova(fit3)
+
+```
+
+La méthode backward retient ne retient finalement que l'effet de la pratique sur le modèle.
+
+```{r,echo = FALSE}
+fit_final = fit3
+summary(fit_final)
+```
+
+Le summary nous précise que les deux pratiques (Broyage et Sarclage) sont bien significatives et influence négativement la dose d'ift (resp.-2.11 et -3.7 kg/ha).
+
+### Diagnostic
+
+```{r Diagnostic_p42,fig.width=8,echo = FALSE, message = FALSE,results = FALSE,fig.show='hide'}
+# diagnostic
+data_P42$res <- residuals(fit_final, type = "pearson")
+data_P42$fitted <- predict(fit_final)
+
+plot_grid(nrow = 2, ncol = 3,
+          ggplot(data_P42, aes(x = res)) +
+            geom_histogram(bins = 5,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data_P42, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data_P42, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data_P42, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data_P42, aes(y = res, x = Bloc)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Bloc"),
+          ggplot(data_P42, aes(y = res, x = paillis_R)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Paillis"),
+          ggplot(data_P42, aes(y = res, x = nb_chimique)) +
+            geom_point(fill = "lightblue") +
+            geom_smooth(method ="lm") +
+            labs(title = "Nb chimique"))
+
+
+ks.test(data_P42$res, "pnorm", 0, sd(data_P42$res))
+shapiro.test(data_P42$res)
+bartlett.test(data_P42$res,data_P42$pratique)
+```
+
+
+Graphiquement la normalité et la variance sont assez difficile à voir du fait du manque de données.
+En effectuant les tests, Kolgomorov accepte l'hypothèse nulle tandis que Shapiro le rejette.
+L'homogénéité de la variance est ici accepté.
+
+## P12
+
+## DISCUSSION
+
+En comparaison avec le témoin propre, les pratiques de désherbages sont significatifs pour les trois essais. Et tous influence négativement les doses d'ift.
+Le nombre d'intervention chimique est significatif pour la P25 ITK et Montagne, bien que les deux résultats soient antagonistes.
+L'interaction est significative pour la P25 Montagne entre les pratiques et le cycle de repousse.
+
+# ALL
+
+### Statistique descriptive
+
+On commence par dessiner quelques graphiques afin d'avoir un premier aperçu des données.
+
+
+
+```{r, STAT_Descriptive_all,echo = FALSE,message=FALSE, fig.width= 9}
+
+# graph for study
+plot_grid(
+  ggplot(data, aes(x=pratique, y=IFTH)) + geom_boxplot()
+  + ggtitle("Pratique ") +
+    theme(plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2),
+         axis.title.x = element_blank(),
+         panel.spacing = unit(5, "lines")) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  ggplot(data, aes(x=essai, y=IFTH)) + geom_boxplot()
+  + ggtitle("Essai ") +
+     theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+         plot.margin = margin(r = 2, l =2)) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  #ggplot(data, aes(x=essai, y=IFTH, color = pratique)) + geom_boxplot()
+  #+ ggtitle("Essai par pratique"),
+  ggplot(data, aes(x=cycle, y=IFTH)) + geom_boxplot()
+  + ggtitle("Cycle ") +
+    theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(l = 2)) +
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  #ggplot(data, aes(x=cycle, y=IFTH, color=pratique)) + geom_boxplot()
+  #+ ggtitle("Cycle par pratique "),
+  #ggplot(data, aes(x=Bloc, y=IFTH)) + geom_boxplot()
+  #+ ggtitle("Bloc"),
+  ggplot(data, aes(x=nb_chimique, y=IFTH)) + geom_point() + geom_smooth(method="lm") +
+    ggtitle("Nb d'intervention chimique ") +
+    theme(
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(r = 2, l = 2)),
+  ggplot(data, aes(x=YEAR2, y=IFTH)) + geom_boxplot()
+  + ggtitle("Année") +
+    theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = margin(r = 2, l = 2))+
+    stat_summary(
+    geom = "point",
+    fun.y = "mean",
+    col = "black",
+    size = 1.5,
+    shape = 24,
+    fill = "red"
+  ),
+  #ggplot(data, aes(x=parcelle, y=IFTH)) + geom_boxplot()
+  #+ ggtitle("Parcelle"),
+  labels=c("A", "B","C","D","E"),
+  nrow=2,
+  scale=0.9)
+
+```
+
+
+
+
+```{r STAT_Descriptive_all, fig.width=10,echo = FALSE,message=FALSE}
+grid.arrange(
+  ggplot(data, aes(x=essai, y=IFTH)) + geom_boxplot()
+  + ggtitle("Essai "),
+    ggplot(data, aes(x=essai, y=IFTH, color = pratique)) + geom_boxplot()
+  + ggtitle("Essai par pratique"),
+  ggplot(data, aes(x=pratique, y=IFTH)) + geom_boxplot()
+  + ggtitle("Pratique "),
+  ggplot(data, aes(x=cycle, y=IFTH)) + geom_boxplot()
+  + ggtitle("Cycle "),
+  ggplot(data, aes(x=cycle, y=IFTH, color=pratique)) + geom_boxplot()
+  + ggtitle("Cycle par pratique "),
+  ggplot(data, aes(x=cycle_detailed, y=IFTH)) + geom_boxplot()
+  + ggtitle("Cycle détaillé"),
+nrow=2)
+
+grid.arrange(
+  ggplot(data, aes(x=Bloc, y=IFTH)) + geom_boxplot()
+  + ggtitle("Bloc"),
+  ggplot(data, aes(x=Bloc, y=IFTH, color = pratique)) + geom_boxplot()
+  + ggtitle("Bloc par pratique"),
+  ggplot(data, aes(x=nb_chimique, y=IFTH, color=pratique)) + geom_point() + geom_smooth(method="lm")
+  + ggtitle("Nb d'intervention chimique "),
+  ggplot(data, aes(x=YEAR2, y=IFTH)) + geom_boxplot()
+  + ggtitle("Année"),
+  ggplot(data, aes(x=parcelle, y=IFTH)) + geom_boxplot()
+  + ggtitle("Parcelle"),
+nrow=2)
+```
+
+```{r,fig.width= 9}
+p1 =  ggplot(data, aes(x=pratique, y=IFTH)) + geom_boxplot() +
+  ggtitle("Pratique ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p2 =  ggplot(data, aes(x=essai, y=IFTH)) + geom_boxplot() +
+  ggtitle("Essai ") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2, l = 2))
+
+p3 = ggplot(data, aes(x=cycle, y=IFTH)) + geom_boxplot() +
+  ggtitle("Cycle ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p4 = ggplot(data, aes(x=Bloc, y=IFTH)) + geom_boxplot() +
+  ggtitle("Bloc") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.margin = margin( l = 2))
+
+ggarrange(p1,p2,p3,p4,common.legend = TRUE,nrow = 2, ncol = 2)
+
+
+
+
+p1 =  ggplot(data, aes(x=essai, y=IFTH, color = pratique)) + geom_boxplot() +
+  ggtitle("Essai par pratique") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p2 =  ggplot(data, aes(x=cycle, y=IFTH, color=pratique)) + geom_boxplot() +
+  ggtitle("Cycle par pratique ") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2, l = 2))
+
+p3 = ggplot(data, aes(x=nb_chimique, y=IFTH, color=pratique)) + geom_point() + geom_smooth(method="lm") +
+  ggtitle("Nb d'intervention chimique ") +
+  theme(axis.ticks.y = element_blank(),
+         axis.title.x = element_blank(),
+        plot.margin = margin(r = 2))
+
+p4 = ggplot(data, aes(x=YEAR2, y=IFTH)) + geom_boxplot() +
+  ggtitle("Année") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        plot.margin = margin( l = 2))
+
+ggarrange(p1,p2,p3,p4,common.legend = TRUE,nrow = 2, ncol = 2,legend = "right")
+```
+
+
+On observe une légère différence entre l'essai P25_ITK et les autres, cependant les médianes sont assez équivalentes.
+Il semble y avoir une différence entre la pratique de TP et le reste. 
+Il ne semble pas avoir d'interaction entre la pratique et le cycle.
+Il semble également y avoir une différence assez importante pour le cycle détaillé et les années, à confirmer par les analyses.
+On note également une corrélation positive entre le nombre d'intervention chimique et l'ift.
+
+## Structure aléatoire
+
+Même principe que le rendement.
+De plus, il est a été remarqué que les variances résiduelles des essais analysés individuellement sont très différentes entre elles. 
+Il a donc été choisit d'ajouter une pondération aux modèles afin de valider les hypothèses usuelles (variance et normalité).
+
+```{r Structure_aléatoire_2, results = FALSE, echo = TRUE}
+# essai en fixe
+fit1 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle) + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+fit2 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+fit3 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+fit4 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc), data=data,weights = weight)
+
+fit5 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle) + (1|YEAR2), data=data,weights = weight)
+
+fit6 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|essai:Bloc:parcelle), data=data,weights = weight)
+
+fit7 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai) + (1|YEAR2), data=data,weights = weight)
+
+fit8 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|YEAR2), data=data,weights = weight)
+
+fit9 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|essai:Bloc), data=data,weights = weight)
+
+fit10 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle), data=data,weights = weight)
+
+fit11 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc), data=data,weights = weight)
+
+fit12 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc:parcelle) + (1|YEAR2), data=data,weights = weight)
+
+fit13 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|essai:Bloc) + (1|YEAR2), data=data,weights = weight)
+
+```
+
+On procède par une comparaison de ces treize modèles par AIC/BIC, voici leurs résultats :
+
+```{r, results = TRUE}
+AIC(fit1,fit2, fit3, fit4, fit5, fit6,fit7,fit8, fit9, fit10,fit11,fit12,fit13)
+BIC(fit1,fit2, fit3, fit4, fit5, fit6,fit7,fit8, fit9, fit10,fit11,fit12,fit13)
+
+#texreg(list(fit1,fit2,fit3,fit4,fit5,fit6,fit7)) # latex
+#knitr::kable(list(a, b$BIC))
+
+
+```
+
+La structure contenant l'année comme unique effet aléatoire est choisit par les derniers critères.
+
+### Selection modèle final
+
+```{r Sélection_du_modèle_final_all, echo = FALSE,message=FALSE}
+
+fit1 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|YEAR2), data=data,weights = weight)
+anova(fit1, type="3")
+
+# critères AIC,BIC
+fit2 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique:essai + (1|YEAR2), data=data,weights = weight,REML = FALSE)
+fit3 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + nb_chimique + (1|YEAR2), data=data,weights = weight,REML = FALSE)
+fit4 <- lmer(IFTH ~ pratique + essai + pratique:essai + pratique:cycle + cycle + (1|YEAR2), data=data,weights = weight,REML = FALSE)
+fit5 <- lmer(IFTH ~ pratique + essai + pratique:cycle + cycle + (1|YEAR2), data=data,weights = weight,REML = FALSE)
+fit6 <- lmer(IFTH ~ pratique + essai + cycle + (1|YEAR2), data=data,weights = weight,REML = FALSE)
+fit7 <- lmer(IFTH ~ pratique + essai + (1|YEAR2), data=data,weights = weight,REML = FALSE)
+
+AIC(fit2,fit3,fit4,fit5,fit6,fit7)
+
+fit_final = fit1
+
+anova(fit_final,type="3")
+```
+
+Les critères AIC/BIC valide le modèle contenant les trois interactions (pratique avec essai, pratique avec cycle et nombre d'intervention chimique avec essai). Tout comme la sélection "Backward" avec la méthode de Satterthwaite.
+
+Voici le tableau d'analyse de variance de type $II$ avec les p-valeurs des effets significatifs :
+
+```{r anova, results= TRUE}
+knitr::kable(anova(fit_final,type="2"))
+
+anova(fit_final,type="2")
+```
+
+
+On peut alors écrire la formule complète du modèle ainsi :
+
+$$
+IFT_{ijklm} \sim \mu + P_i + C_j + E_k + PC_{ij} + PE_{ik} + EN_{kl} + A_m + \epsilon_{ijklm}
+$$
+
+
+$$
+A_m \sim N(0,\sigma^2_M),m = 1...M
+$$
+
+
+
+$$
+\epsilon \sim N(0,\sigma^2_{\epsilon}), \forall i,j,k,l,m
+$$
+
+
+$IFT_{ijklm}$ : La dose d'ift appliquée sur l'observation $ijklm$
+
+$\mu$ : l'intercept 
+
+$P_i$ : l'effet de la pratique i, $i = 1...4$ et $P_1 = 0$
+
+$C_j$ : l'effet du cycle j, $j = 1,2$ et $C_1 = 0$
+
+$E_k$ : l'effet de l'essai k, $k = 1,4$ et $E_1 = 0$
+
+$PC_{ij}$ : l'effet de l'interaction pratique:cycle i,j, $i = 1...4$,$j = 1...2$ et $PC_{1,1} = 0$
+
+$PE_{ik}$ : l'effet de l'interaction pratique:essai i,k, $i = 1...4$,$k = 1...4$ et $PE_{1,1} = 0$
+
+$EN_{kl}$ : l'effet de l'interaction essai:nb_intervention_chimique k,l, $k = 1...4$,$l = 1...8$ et $EN_{1,1} = 0$
+
+$A_m$ : l'effet de l'année m, $m = 1...7$ et $A_1 = 0$
+
+$\epsilon_{ijklm}$ l'erreur résiduelle à $ijklm$
+
+Voyons maintenant de plus près le détail de ces facteurs grâce au summary fournit par le logiciel R:
+
+```{r, echo = FALSE, results = TRUE}
+summary(fit_final)
+#Results <- capture.output(summary(fit_final))
+```
+
+Les interprétations sur ce modèle sont à prendre avec précaution avec la présence des trois interactions.
+
+Hormis le broyage, toutes les pratiques sont significativement différent du témoin propre. 
+La PDS diminue l'utilisation d'herbicide d'environ -1.06 tandis que le sarclage l'augmente de 1.73.
+
+Les essais P25_Montagne et P42 augmente significativement la valeur de l'ift comparé à la P25_ITK (resp. 6.27 et 4.91).
+
+Voici les graphiques d'interaction permettant de constater l'effet de ces dernières :
+
+```{r}
+# interaction plot
+par(mfrow=c(1,1))
+with(data, {
+#interaction.plot(essai, pratique, IFTH,col=topo.colors(5), main = "pratique x essai")
+#interaction.plot(cycle, pratique, IFTH,col=topo.colors(5), main = "pratique x cycle")
+interaction.plot(nb_chimique, essai, IFTH,col=topo.colors(5), main = "nb_chimique x essai")
+})
+
+data %>% 
+  ggplot() +
+  aes(x = nb_chimique, color = essai, group = essai, y = IFTH) +
+  stat_summary(fun.y = mean, geom = "point") +
+  stat_summary(fun.y = mean, geom = "line") +
+  ylab("mean of IFTh")
+
+data %>% 
+  ggplot() +
+  aes(x = nb_chimique, y = IFTH, group = essai, color = essai) +
+  geom_point(color = "grey", alpha = .7) +
+    geom_smooth(method = "lm")
+```
+
+L'interaction est assez difficile à voir entre la pratique et le cycle, les deux cycles ayant un comportement assez similaire sur chaque pratique.
+
+Concernant la pratique et l'essai, on constate également des tendances similaires entre les essais selon la pratique.
+Cependant on peut apercevoir de légères divergences, notamment la P25_ITK qui a les trois pratiques de Broyage, PDS et Sarclage assez similaires. Tandis que pour la P12, le Broyage et le Sarclage ont une moyenne d'ift supérieur à la PDS.
+
+Les deux autres essais sont plus compliqués à analyser de part l'absence d'une pratique dans chaque.
+
+Concernant l'interaction entre le nombre d'intervention chimique et l'essai : on constate que l'essai P12 ne suit pas la corrélation relativement positive entre l'ift, contrairement aux essais P42 et P25_ITK.
+
+### Diagnostic
+
+On affiche maintenant les différents graphiques et tests permettant de diagnostiquer l'analyse juste au dessus :
+
+```{r, fig.width=9,fig.height=8}
+data$res <- residuals(fit_final, "pearson")
+data$fitted <- predict(fit_final)
+
+plot_grid(nrow = 3, ncol = 3,
+          ggplot(data, aes(x = res)) +
+            geom_histogram(bins = 50,
+                           fill = "lightblue", color = "black")+
+            labs(title = "Histogramme des residus"),
+          ggplot(data, aes(sample = res)) +
+            stat_qq() +
+            stat_qq_line()+
+            labs(title = "Normal Q-Q Plot"),
+          ggplot(data, aes(y = res, x = fitted)) +
+            geom_point()+
+            labs(title = "Valeurs ajustees"),
+          ggplot(data, aes(y = res, x = pratique)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "pratique"),
+          ggplot(data, aes(y = res, x = YEAR2)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Année"),
+          ggplot(data, aes(y = res, x = essai)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Essai"),
+          ggplot(data, aes(y = res, x = cycle)) +
+            geom_boxplot(fill = "lightblue") +
+            labs(title = "Cycle"))
+
+ks.test(data$res, "pnorm", 0, sd(data$res))
+shapiro.test(data$res)
+bartlett.test(data$res,data$pratique)
+```
+
+La normalité semble être respecté (cf histogramme et qqplot), bien que rejetté par les deux tests de Shapiro et Kolgomorov.
+Les variances semblent également être homogènes graphiquement (rejetté ici également).
+
+Au niveau des boxplots des quatres effets cycle, pratique, année et essai sont assez correctes.
+On notifie quelques différences tout de même, notamment pour la TP, l'année 2013 et la P25_Montagne.
+
+### Post-Hoc
+
+Voici les estimations de la variance de l'effet aléatoire année et la variance résiduelle :
+
+```{r, echo=FALSE, results = TRUE}
+knitr::kable(VarCorr(fit_final)) # estimate of the variance parameter
+```
+
+L'estimation de la variance du facteur aléatoire "année" se retrouve bien dans l'intervalle de confiance compilé par la vraisemblance :
+
+```{r, results = TRUE}
+fit_final_profile <- profile(fit_final, which=1:2, signames=FALSE) # likelihood CI
+knitr::kable(confint(fit_final_profile))
+```
+
+
+On compile maintenant les moyennes ajustées par la méthode de Tukey pour l'interaction entre la pratique et le cycle (les moyennes ajustées ici ne peuvent être totalement compilés à cause de la présence d'interactions dans le modèles) :
+
+```{r, results = TRUE}
+tk_ift = emmeans(fit_final, pairwise ~ pratique | cycle, adjust="tukey")
+```
+
+Les mêmes résultats pour cette fois ci l'interaction de la pratique avec l'essai :
+
+
+```{r, echo=FALSE, results=TRUE}
+tk_ift_2 = emmeans(fit_final, pairwise ~ pratique | essai,adjust="tukey")
+```
+
+
+```{r, echo=FALSE,results=TRUE}
+tk_ift_3 = emmeans(fit_final, pairwise ~ nb_chimique | essai,adjust="tukey")
+xtable(tk_ift_3$contrasts)
+```
+
+Un graphique est plus parlant pour montrer l'effet de l'estimation de ces différentes interactions, ici entre la pratique et l'essai :
+
+```{r, echo = FALSE,results=TRUE}
+emmip(fit_final, pratique ~ essai) +
+  theme(legend.position="none")
+#plot(allEffects(fit_final))
+
+```
+
+On remarque ici que le Sarclage a une utilisation très faible d'ift pour l'essai P42 par rapport aux autres essais.
+Le reste des pratiques et essais suivent un pattern similaire.
+
+```{r}
+emmip(fit_final, pratique ~ cycle) +
+  theme(#axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank())
+```
+
+On constate que le Sarclage a une baisse bien plus elevé pour la repousse que la TP.
+Le graphique n'affiche pas les droites des pratiques de PDS et de Broyage.
+
+
+# DISCUSSION
+
+Comme sur les essais analysés individuellement, le Sarclage et la PDS réduisent significativement la dose d'ift (resp. -2.5 et -3.45 kg/ha), le broyage le fait également mais celui-ci n'est pas significatif.
+Aucun autre effet n'est significatif (notamment le nombre d'intervention chimique) hormis l'interaction entre les plantes de services et le cycle de repousse.
+
+Individuellement, il a été trouvé que les pratiques permettaient de réduire l'utilisation d'herbicide.
+D'autres facteurs influence ce dernier, notamment le nombre d'intervention chimique (logique) ou encore le cycle de plantation (permet de réduire également).
+
+Globalement ces résultats ne peuvent pas être corroborés définitivement. En effet de nombreuses interactions viennent perturber les interprétations des effets.
+
+On peut tout de même constater que le Sarclage a une plus faible utilisation pour l'essai P42 que les autres. Mais une plus forte utilisation d'herbicide pour la TP et le Broyage. 
+Le témoin propre est également utilisé plus fortement pour la P25_Montagne que les autres essais et les autres pratiques (pour la P25 Montagne).
+De plus la corrélation qui est constaté entre le nombre d'intervention chimique et l'essai semble logique. En effet, cela peut être lié au fait de l'augmentation du nombre de passage plus la présence d'adventices est elevé. 
+
+A noter également que pour valider ces résultats, des pondérations ont dû être insérés dans le modèle a posteriori. Cela est dû à des différences de rapport des variances résiduelles un peu trop elevé entre les différents essais.
+
