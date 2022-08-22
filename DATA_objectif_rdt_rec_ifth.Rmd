@@ -1,0 +1,1914 @@
+---
+title: "DATA4_Rendement_Recouvrement"
+output: html_document
+date: '2022-04-04'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(openxlsx)
+library(lubridate)
+library(data.table)
+library(stringr)
+library(nlme)
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+sym_diff <- function(a,b) setdiff(union(a,b), intersect(a,b))
+
+
+```
+
+# LOADING DATA
+
+## Recuperation des données de Matthias
+
+```{r}
+# Recuperation des données de Matthias
+raw_ercane_database = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",2) # facteurs
+raw_ercane_database2 = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",7) # mesures
+raw_ercane_database3 = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",8) # recouvrement
+
+raw_ercane_database3$date.plantation_ou_coupe = convertToDate(raw_ercane_database3$date.plantation_ou_coupe)
+raw_ercane_database3$date.notation = convertToDate(raw_ercane_database3$date.notation)
+```
+
+## Recuperation des données brut d'Ercane
+
+### P42
+
+```{r}
+# LOAD DATA
+raw1 = read.xlsx("old/FINAL_MAT_FACTEUR.xlsx") # 903*31
+
+# canne-bio
+data4 = read.xlsx("DATA/data_ERCANE/CanneBio 2019-2020 2021 01 17.xlsx")
+
+# P42
+# 2015-2016
+data5_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P42 2015-2016.xlsx",8)
+data5_2 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P42 2015-2016.xlsx",12) # %
+# 2016-2017
+data6_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P42 2016-2017.xlsx",7)
+data6_1 = data6_1[1:168,]
+# 2017-2018
+data7_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P42 2017-2018.xlsx",7)
+data7_1 = data7_1[1:216,]
+# 2018-2019
+data8_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P42 2018-2019.xlsx",8)
+data8_1 = data8_1[1:149,]
+# 2019-2020
+data9_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P42 2019-2020.xlsx",8)
+data9_1 = data9_1[2:142,]
+
+
+```
+
+```{r, to forget}
+
+# Essais à ajouter
+# Baleya
+
+
+# P12
+# 2017-2018
+#data11_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2017-2018.xlsx",6) # Enherbement
+#data11_1 = data11_1[1:70,]
+#data11_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2017-2018.xlsx",10) # Rendement
+#data11_2 = data11_2[1:6,]
+#data11_3 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2017-2018.xlsx",1) # Modalité
+#data11_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2017-2018.xlsx",2) # IFTH
+#data11_4 = data11_4[1:15,]
+# 2018-2019
+#data12_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2018-2019.xlsx",7) # Enherbement
+#data12_1 = data12_1[1:67,]
+#data12_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2018-2019.xlsx",14) # Rendement
+#data12_2 = data12_2[1:6,]
+#data12_3 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2018-2019.xlsx",1) # Modalité
+#data12_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2018-2019.xlsx",2) # IFTH
+#data12_4 = data12_4[1:12,]
+# 2019-2020
+#data13_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2019-2020.xlsx",7) # Enherbement
+#data13_1 = data13_1[1:40,]
+#data13_3 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2019-2020.xlsx",1) # Modalité
+#data13_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P12 2019-2020.xlsx",2) # Enherbement
+#data13_4 = data13_4[1:7,]
+
+# P25_ITK
+# 2014-2015
+#data14_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 ITK 2014-2015.xlsx",6) # Enherbement
+#data14_1 = data14_1[1:168,]
+#data14_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 ITK 2014-2015.xlsx",11) # Rendement
+#data14_2 = data14_2[1:168,]
+#data14_3 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 ITK 2014-2015.xlsx",1) # Modalité
+#data14_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 ITK 2014-2015.xlsx",2) # IFTH
+#data14_4 = data14_4[1:10,]
+# 2015-2016
+#data15_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",7) # Enherbement
+#data15_1 = data15_1[1:120,]
+#data15_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",11) # Rendement
+#data15_3 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",1) # Modalité
+#data15_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",3) # Enherbement
+#data15_4 = data15_4[1:13,]
+
+# P25_montagne
+# 2017-2018
+#data16_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2017-2018.xlsx",10) # Enherbement
+#data16_1 = data16_1[1:132,]
+#data16_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2017-2018.xlsx",13) # Rendement
+#data16_2 = data16_2[1:8,]
+#data16_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2017-2018.xlsx",2) # IFTH
+#data16_4 = data16_4[1:22,]
+# 2018-2019
+#data17_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2018-2019.xlsx",11) # Enherbement
+#data17_1 = data17_1[1:124,]
+#data17_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2018-2019.xlsx",18) # Rendement
+#data17_2 = data17_2[1:8,]
+#data17_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2018-2019.xlsx",4) # IFTH
+#data17_4 = data17_4[1:13,]
+# 2019-2020
+#data18_1 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2019-2020.xlsx",11) # Enherbement
+#data18_1 = data18_1[1:146,]
+#data18_2 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2019-2020.xlsx",18) # Rendement
+#data18_2 = data18_2[1:8,]
+#data18_4 = read.xlsx("data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2019-2020.xlsx",4) # IFTH
+#data18_4 = data18_4[1:12,]
+
+#raw1 %>%
+#  select(essai,YEAR,parcelle,modalite,modalite2,Yield_CAS) %>%
+#  filter(essai == "P12", YEAR == 2019)
+```
+
+# OBJECTIF
+
+L'objectif de ce RMD est de créer un fichier contenant toutes les informations nécessaires aux deux premiers objectifs.
+Le rendement et le recouvrement.
+Il contiendra également la colonne IFTH.
+
+# ESSAI P42
+
+```{r}
+# convert to date
+data5_1$date.plantation_ou_coupe = convertToDate(data5_1$date.plantation_ou_coupe)
+data5_1$date.notation = convertToDate(data5_1$date.notation)
+data5_2$date.plantation_ou_coupe = convertToDate(data5_2$date.plantation_ou_coupe)
+data5_2$date.notation = convertToDate(data5_2$date.notation)
+data6_1$date.plantation_ou_coupe = convertToDate(data6_1$date.plantation_ou_coupe)
+data6_1$date.notation = convertToDate(data6_1$date.notation)
+data7_1$date.plantation_ou_coupe = convertToDate(data7_1$date.plantation_ou_coupe)
+data7_1$date.notation = convertToDate(data7_1$date.notation)
+data8_1$date.plantation_ou_coupe = convertToDate(data8_1$date.plantation_ou_coupe)
+data8_1$date.notation = convertToDate(data8_1$date.notation)
+data9_1$date.plantation_ou_coupe = convertToDate(data9_1$date.plantation_ou_coupe)
+data9_1$date.notation = convertToDate(data9_1$date.notation)
+
+# select columns needed on data5_1 (celui qui n'est pas en pourcentage)
+data5_1 = data5_1[,1:7]
+# having percentage file
+data_analyze = data5_2 %>%
+  transform(Cajanus.scarabeoides = as.numeric(Cajanus.scarabeoides)) %>%
+  left_join(data5_1) %>%
+  relocate(c("modalité","parcelle","Bloc"),
+           .after = essai) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+# adding other years
+# 2016_2017
+data_analyze2 = data6_1 %>%
+  transform(Note_globale_IR = as.numeric(Note_globale_IR)) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité,
+         Paillis = paillis)
+
+# 2017_2018
+data_analyze3 = data7_1 %>%
+  transform(Note_globale_IR = as.numeric(Note_globale_IR)) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+# 2018_2019
+data_analyze4 = data8_1 %>% # pas de bloc
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+# fix the issues of double column from xlsx
+to_rename <- grep("^X", names(data9_1))
+names(data9_1)[to_rename] <- paste0(names(data9_1)[to_rename - 1], "_IR")
+
+# synchronizing
+test9 = data9_1 %>% 
+  mutate_at(c(10:78), as.numeric) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité,
+         Inconnu = X76_IR,
+         Inconnu_IR = X77_IR,
+         Cyperus.rotundus = "Cyperus.rotundus..R.",
+         Cyperus.rotundus_IR = "Cyperus.rotundus..IR.")
+
+# mean of the IR+R species of data9_1
+forloop = test9[,12:79]
+mat = matrix(0,141,34)
+impaire = seq(1,67,2)
+paire = seq(2,68,2)
+
+for(i in 1:length(impaire)){
+  mat[,i] = round(rowMeans(forloop[,impaire[i]:paire[i]]))
+}
+colnames(mat) = colnames(forloop[impaire])
+
+# 2019_2020
+data_analyze5 = cbind(test9[,1:11],mat)
+
+# adding all YEARS together
+data_analyze_final = data_analyze %>%
+  full_join(data_analyze2) %>%
+  full_join(data_analyze3) %>%
+  full_join(data_analyze4) %>%
+  full_join(data_analyze5)
+
+write.xlsx(data_analyze_final,"old/data_analyze_final.xlsx")
+
+# adding Bloc,Yield,IFTH to P42
+data_analyze_final = data_analyze_final %>%
+  select(-c(age,date.notation,date.plantation_ou_coupe,caractéristiques,Paillis,Ferti,Zone,Inconnu))
+#            Megathyrsus.maximus..Panicum.maximum.:Inconnu))
+
+data_P42 = raw1 %>%
+  select(essai,YEAR,parcelle,modalite,Yield_CAS,IFTH) %>%
+  filter(essai == "P42")
+
+data_P42 = data_P42 %>%
+  left_join(data_analyze_final,
+            by = c("essai", "parcelle", "YEAR","modalite"))
+
+# meaning every REC+species variables
+test2 = data_P42 %>%
+  select(-c(IFTH)) %>%
+  group_by(across(-c(Note_globale_plein:Desmodium.intortum))) %>%
+  summarize(across(everything(),list(mean)))
+# fix the issues "of double column from xlsx"_1" apparition
+to_rename = grep("_1", names(test2))
+names(test2)[to_rename] = gsub("_1","",names(test2)[to_rename])
+
+
+# sum IFTH
+data_P42 = data_P42 %>%
+  select(-c(Note_globale_plein:Desmodium.intortum)) %>%
+  inner_join(test2) %>%
+  unique() %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH))
+
+```
+
+
+
+# ESSAI Baleya | P12 | P25_ITK | P25_Montagne
+
+## Recupération des espèces des autres essais
+
+```{r}
+# LOAD espèces DATA
+raw_esp = read.csv("DATA/data_matthias/recouvrement_espèce_elyse.csv",sep = ";") # 184379 x 11 variables
+raw_esp$date.plantation_ou_coupe = dmy(raw_esp$date.plantation_ou_coupe)
+
+# synchronizing 
+test_esp = raw_esp %>%
+  select(-c(date.notation,DAH,modalite2,age)) %>%
+  filter(!(modalite %in% c("TEP","TESP","TPbis","ZNP","Bordures","Bordure","Chemins","TPextra","Tbordure","Tsonge"))) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY","date.plantation_ou_coupe")))
+
+# YEAR and parcelle
+test_esp$YEAR = paste(test_esp$YEAR-1, test_esp$YEAR,sep ="_")
+test_esp$parcelle = sub('P','',test_esp$parcelle)
+
+# separate and pivot parcelle (à vérifier)
+test_esp = test_esp %>%
+  separate(parcelle, c("P1","P2"),remove = FALSE) %>%
+  pivot_longer(cols = "P1":"P2",names_to = "parcelle2",values_to = "parcelle3") %>%
+  filter(!(is.na(parcelle) & parcelle2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+  filter(!(!is.na(parcelle) & is.na(parcelle3))) %>%
+  select(!c("parcelle","parcelle2")) %>%
+  rename(parcelle = parcelle3)
+  
+test_esp = test_esp %>%
+  group_by(across(c(-REC))) %>%
+  summarize(REC = mean(REC)) %>%
+  pivot_wider(
+              names_from = "SPECIES",
+              values_from = "REC") 
+
+test_esp = test_esp %>%
+  rename(modalite_ercane = modalite)
+```
+
+## AJOUT DU BLOC ET DES MESURES (Rendement et IFTH)
+
+```{r}
+# add by FINAL_MAT_FACTEUR
+test = raw_ercane_database %>%
+  select(essai,YEAR,Bloc,parcelle,modalite_ercane,modalite_global,modalite2)
+
+# changing everything in data_P42 to match with raw_ercane_database
+# YEAR and bloc and parcelle
+data_P42$YEAR = paste(data_P42$YEAR-1, data_P42$YEAR,sep ="_")
+data_P42$Bloc = sub('B','',data_P42$Bloc)
+data_P42$parcelle = sub('P','',data_P42$parcelle)
+
+# Modalite name, bloc type
+data_P42 = data_P42 %>%
+  transform(Bloc = as.numeric(Bloc)) %>%
+  rename(modalite_ercane = modalite,
+         Yield_CAS_tha = Yield_CAS,
+         Rec_globale_plein = Note_globale_plein,
+         Rec_globale_R = Note_globale_R,
+         Rec_globale_IR = Note_globale_IR)
+
+# ajout des essais p42 à la suite des autres essais
+test = test %>%
+  full_join(data_P42,
+            by = c("essai", "parcelle", "YEAR","modalite_ercane","Bloc"))
+
+data_mesure = raw_ercane_database2 %>%
+  transform(IFTH = as.numeric(IFTH),
+            Yield_CAS_tha = as.numeric(Yield_CAS_tha)) %>%
+  select(essai,YEAR,parcelle,Yield_CAS_tha,IFTH)
+
+# ajout des mesures des essais p42
+test = test %>%
+  left_join(data_mesure,
+            by = c("essai", "YEAR", "parcelle")) %>%
+  relocate(c(Yield_CAS_tha.x,Yield_CAS_tha.y,IFTH.x,IFTH.y), .after = modalite2) %>%
+  mutate(across(c(Yield_CAS_tha.x,Yield_CAS_tha.y,IFTH.x,IFTH.y), ~ replace(., is.na(.), 0))) %>%
+  mutate(sum_yield = rowSums(across(c(Yield_CAS_tha.x,Yield_CAS_tha.y))),
+         sum_ifth = rowSums(across(c(IFTH.x,IFTH.y)))) %>%
+  mutate(sum_ifth = na_if(sum_ifth,0),
+         sum_yield = na_if(sum_yield,0)) %>%
+  rename(Yield_CAS_tha = sum_yield,
+         IFTH = sum_ifth) %>%
+  select(!c(Yield_CAS_tha.x,Yield_CAS_tha.y,IFTH.x,IFTH.y))
+
+
+```
+
+## AJOUT DES RECOUVREMENTS (hors p42)
+
+```{r}
+data_rec = raw_ercane_database3 %>%
+  select(essai,YEAR,parcelle,modalite_ercane,Rec_adv_plein,Rec_adv_R,Rec_adv_IR) %>%
+  rename(Rec_globale_plein = Rec_adv_plein,
+         Rec_globale_R = Rec_adv_R,
+         Rec_globale_IR = Rec_adv_IR)
+
+test_p42 = test %>%
+  filter(essai == "P42")
+
+# moyennes des recouvrements 
+final = test %>%
+  filter(!essai == "P42") %>%
+  select(!c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR)) %>%
+  left_join(data_rec) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  full_join(test_p42)
+
+# changing parcelle
+final$parcelle = sub('P','',final$parcelle)
+
+```
+
+
+
+## PRECISION DES MODALITES
+
+# Remplissage manuel
+
+```{r}
+# precision (except P42)
+final_wo_P42 = final %>%
+  filter(!essai == "P42") %>%
+  ungroup() %>%
+  filter(!modalite2 %in% c("TPextra","ZESP","ZEP","Tsonge","Tbordure")) %>%
+  mutate(
+    modalite3 = case_when(
+      modalite2 == "Broyage IR" ~ "Broyage",
+      modalite2 == "Pattes d'oie IR" ~ "Sarclage",
+      modalite2 == "Fauchage" ~ "Broyage",
+      modalite2 == "Désherbage méca IR" ~ as.character(NA),
+      modalite2 %in% c("Désherbage sélectif","DesS") ~ "Selectif",
+      
+      TRUE ~ modalite2
+    )) %>%
+  relocate(c("modalite3"), .after = modalite2) %>%
+#  filter(essai %in% c("P12","P25_ITK","P25_montagne","P42")) %>%
+  select(-c(modalite_global,modalite2)) %>%
+  relocate(c(Yield_CAS_tha,IFTH,Rec_globale_plein,Rec_globale_R,Rec_globale_IR), .after = modalite3) %>%
+  select(-c(Megathyrsus.maximus..Panicum.maximum.:Desmodium.intortum))
+
+# final p42
+final_P42 = final %>%
+  ungroup() %>%
+  filter(essai == "P42") %>%
+  select(-c(modalite_global,modalite2)) %>%
+  relocate(c(Yield_CAS_tha,IFTH,Rec_globale_plein,Rec_globale_R,Rec_globale_IR), .after = modalite_ercane)
+
+# add esp (adding 42)
+final_esp = final_wo_P42 %>%
+  left_join(test_esp) %>%
+  full_join(final_P42)
+  
+# precize some stuff
+final_esp = final_esp %>%
+  mutate(
+    modalite3 = case_when(
+      essai == "P42" & YEAR %in% c("2018_2019") & modalite_ercane %in% c("M1","M2","M3") ~ "Sarclage", # intervention de broyage également
+      essai == "P42" & modalite_ercane == "Tréf" ~ "TP",
+      essai == "P42" & YEAR %in% c("2015_2016","2016_2017","2017_2018") ~ "Chimique",
+      essai == "P42" & YEAR %in% c("2019_2020") & modalite_ercane %in% c("M1","M2","M3") ~ "Broyage",
+      essai == "P42" & modalite_ercane %in% c("TE") ~ modalite_ercane,
+      essai == "P42" & modalite_ercane %in% c("T01","T02","T11","T12","T21","T22") ~ as.character(NA),
+      essai == "P25_montagne" & YEAR %in% c("2017_2018") & modalite_ercane %in% c("M1") ~ "Sarclage",
+      essai == "P25_montagne" & YEAR %in% c("2018_2019","2019_2020") & modalite_ercane %in% c("M1") ~ "Sarclage",
+      TRUE ~ modalite3
+    ))
+#  filter(!(essai == "P42" & YEAR %in% c("2015_2016","2016_2017","2017_2018")))  
+
+```
+
+
+# FURTHER augmentation (adding other factors)
+
+```{r}
+# add other factors ()
+# Plot_m2, Variety?,PPT?,Tmean?
+# Ajouter P42 aux données
+other = raw_ercane_database %>%
+#  filter(essai %in% c("P12","P25_ITK","P25_montagne","P42")) %>%
+  select(essai,YEAR,Bloc,modalite_ercane,Localisation,Altitude)
+
+final = final_esp %>%
+  left_join(other) %>%
+  unique() %>%
+  mutate(
+    Localisation = case_when(
+      essai == "P42" & YEAR %in% c("2018_2019","2019_2020") ~ "Sainte_Marie", 
+      Localisation %in% c("Sainte- Marie","Sainte-Marie") ~"Sainte_Marie",
+      Localisation %in% c("Saint-Paul") ~"Saint_Paul",
+      Localisation %in% c("Saint-Benoît") ~"Saint_Benoit",
+      TRUE ~ Localisation
+    ),
+    Altitude = case_when(
+      essai == "P42" & YEAR %in% c("2018_2019","2019_2020") ~ 50, 
+      TRUE ~ Altitude)) %>%
+  relocate(c(Localisation,Altitude), .after = Rec_globale_IR)
+
+```
+
+
+```{r}
+write.xlsx(final,"Objectif_rdt_rec.xlsx")
+raw_3_objectif = read.xlsx("Objectif_rdt_rec.xlsx")
+
+data_3_objectif = raw_3_objectif
+
+```
+
+# ajout de l'année 2015_2016 (P25_ITK)
+
+```{r}
+data15_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",7) # Enherbement
+data15_1 = data15_1[1:120,]
+data15_2 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",11) # Rendement
+data15_3 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 itk 2015-2016.xlsx",3) # IFTH
+data15_3 = data15_3[1:13,]
+
+# basic changes
+# reformat date
+data15_1$date.plantation_ou_coupe = convertToDate(data15_1$date.plantation_ou_coupe)
+data15_1$date.notation = convertToDate(data15_1$date.notation)
+data15_2$date.plantation_ou_coupe = convertToDate(data15_2$date.plantation_ou_coupe)
+data15_2$date.notation = convertToDate(data15_2$date.notation)
+data15_3$date.plantation_ou_coupe = convertToDate(data15_3$date.plantation_ou_coupe)
+data15_3$date_traitement = convertToDate(data15_3$date_traitement)
+
+# DATA FACTEURS
+data15_1_FACTOR = data15_1 %>%
+  transform(Cyperus.rotundus = as.numeric(Cyperus.rotundus)) %>%
+  mutate(
+    essai = case_when(
+      essai == "P25 LEG" ~ "P25_ITK"
+    ),
+    parcelle = 
+      case_when(
+      parcelle == "P 1-2" ~ "P1,P2",
+      parcelle == "P 3-4" ~ "P3,P4",
+      parcelle == "P 5-6" ~ "P5,P6",
+      parcelle == "P 7-8" ~ "P7,P8",
+      parcelle == "P 9-10" ~ "P9,P10",
+      parcelle == "P 11-12" ~ "P11,P12",
+      TRUE ~ parcelle
+    )) %>%
+  filter(!(modalité %in% c("ZSP","ZP"))) %>%
+  select(-c(age,date.plantation_ou_coupe,date.notation,parcelle,ligne,colonne,Note_adv_plein,Note_adv_R,Note_adv_IR,Note_pds_plein,Note_pds_R,Note_pds_IR)) %>%
+  mutate(
+    modalite3 = case_when(
+      modalité == "M3" ~ "remuage_paillis",
+      modalité == "M2" ~ "Broyage",
+      modalité == "M1" ~ "Sarclage",
+      modalité == "M4" ~ "PDS",
+      TRUE ~ modalité
+    )) %>%
+  mutate(YEAR = "2015_2016") %>%
+  relocate(c("YEAR"), .after = essai)
+
+# meaning every REC+species variables
+data15_1_FACTOR = data15_1_FACTOR %>%
+  group_by(across(-c(Note_globale_plein:Tephrosia.purpurea))) %>%
+  summarize(across(everything(),list(mean)))
+
+# fix the issues "of double column from xlsx"_1" apparition
+to_rename = grep("_1", names(data15_1_FACTOR))
+names(data15_1_FACTOR)[to_rename] = gsub("_1","",names(data15_1_FACTOR)[to_rename])
+
+# finishing renaming
+data15_1_FACTOR = data15_1_FACTOR %>%
+  rename(Rec_globale_plein = Note_globale_plein,
+           Rec_globale_R = Note_globale_R,
+           Rec_globale_IR = Note_globale_IR)
+
+# DATA RENDEMENT
+data15_2_YIELD = data15_2 %>%
+  select(modalité,parcelle,bloc,rdt) %>%
+  rename(Yield_CAS_tha = rdt) %>%
+  group_by(across(-c(Yield_CAS_tha))) %>%
+  summarize(Yield_CAS_tha = mean(Yield_CAS_tha))
+
+# DATA IFTH
+data15_3_IFTH = data15_3 %>%
+  select(modalité,ift_total_reel) %>%
+  group_by(modalité) %>%
+  summarize(ift_total_reel = sum(ift_total_reel))
+  
+# fixing bloc names rows issues
+data15_1_FACTOR$bloc = sub('B','',data15_1_FACTOR$bloc)
+data15_2_YIELD$bloc = sub('B','',data15_2_YIELD$bloc)
+
+# JOIN
+data_P25_ITK_2016 = data15_1_FACTOR %>%
+  left_join(data15_3_IFTH) %>%
+  left_join(data15_2_YIELD) %>%
+  rename(Bloc = bloc,
+         modalite_ercane = modalité,
+         IFTH = ift_total_reel) %>%
+  transform(Bloc = as.numeric(Bloc)) %>%
+  mutate(
+  Localisation = "Sainte_Marie",
+  Altitude = 50)
+  
+# changing parcelle
+data_P25_ITK_2016$parcelle = sub('P','',data_P25_ITK_2016$parcelle)
+
+data_3_objectif = final %>%
+  full_join(data_P25_ITK_2016)
+```
+
+## ajout des derniers facteurs
+
+```{r}
+#  | nombre d'interventions (chimique) (AUGMENT with NA) 
+raw_ercane_database$Date_coupe_precedente = convertToDate(raw_ercane_database$Date_coupe_precedente)
+raw_ercane_database$Date_coupe_fin = convertToDate(raw_ercane_database$Date_coupe_fin)
+
+data_ercane = raw_ercane_database %>%
+  select(c("essai", "YEAR", "Bloc", "parcelle", "modalite_ercane","Crop_cycle","Crop_cycle_simplified","PPT","Tmean","Date_coupe_precedente","Date_coupe_fin"))
+
+# synchronizing 
+test_fact = data_ercane %>%
+  filter(!(modalite_ercane %in% c("TP bis","TESP","TEP","ZNP","TEIL","ZSP","TPextra","Tbordure","Tsonge","ZP","ZEP","ZENP")))
+
+# remove p from parcelle
+test_fact$parcelle = sub('P','',test_fact$parcelle)
+
+# ajout des deux colonnes cycles | pluvio | température | date_plantation et date de récolte 
+data_3_objectif = data_3_objectif %>%
+  left_join(test_fact,
+            by = c("essai", "YEAR", "Bloc", "parcelle","modalite_ercane")) %>%
+  rename(cycle_detailed = Crop_cycle,
+         cycle = Crop_cycle_simplified,
+         pluvio = PPT,
+         temp = Tmean,
+         date_repousse_ou_plantation = Date_coupe_precedente,
+         date_recolte = Date_coupe_fin) %>%
+  transform(pluvio = as.numeric(pluvio),
+            temp = as.numeric(temp)) %>%
+  mutate(
+    cycle = case_when(
+      essai == "P25_ITK" & YEAR == "2015_2016" ~ "R",
+      essai == "P42" & YEAR == "2015_2016" ~ "R",
+      essai == "P42" & YEAR == "2016_2017" ~ "R",
+      essai == "P42" & YEAR == "2017_2018" ~ "R",
+      essai == "P42" & YEAR == "2018_2019" ~ "P",
+      essai == "P42" & YEAR == "2019_2020" ~ "R",
+      TRUE ~ cycle
+    ),
+    cycle_detailed = case_when(
+      essai == "P25_ITK" & YEAR == "2015_2016" ~ "R4",
+      essai == "P42" & YEAR == "2015_2016" ~ "R5",
+      essai == "P42" & YEAR == "2016_2017" ~ "R6",
+      essai == "P42" & YEAR == "2017_2018" ~ "R7",
+      essai == "P42" & YEAR == "2018_2019" ~ "P",
+      essai == "P42" & YEAR == "2019_2020" ~ "R1", 
+      TRUE ~ cycle_detailed
+    ),
+    date_repousse_ou_plantation = case_when(
+      essai == "P25_ITK" & YEAR == "2015_2016" ~ ymd("2015-09-14"),
+      essai == "P42" & YEAR == "2015_2016" ~ ymd("2015-08-14"),
+      essai == "P42" & YEAR == "2016_2017" ~ ymd("2016-08-30"),
+      essai == "P42" & YEAR == "2017_2018" ~ ymd("2017-08-23"),
+      essai == "P42" & YEAR == "2018_2019" ~ ymd("2018-09-06"),
+      essai == "P42" & YEAR == "2019_2020" ~ ymd("2019-08-09"), 
+      TRUE ~ date_repousse_ou_plantation
+    ),
+    date_recolte = case_when(
+      essai == "P25_ITK" & YEAR == "2015_2016" ~ ymd("2016-09-12"),
+      essai == "P42" & YEAR == "2015_2016" ~ ymd("2016-08-30"),
+      essai == "P42" & YEAR == "2016_2017" ~ ymd("2017-08-18"),
+      essai == "P42" & YEAR == "2017_2018" ~ ymd("2018-08-02"),
+      essai == "P42" & YEAR == "2018_2019" ~ ymd("2019-08-06"),
+      essai == "P42" & YEAR == "2019_2020" ~ ymd("2020-08-05"), 
+      TRUE ~ date_recolte
+    )
+  )  %>% # ajout du mois de recolte/plantation
+  separate(date_repousse_ou_plantation,c("YEAR2","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  select(!(c("YEAR2","DAY"))) %>%
+  rename(MONTH_plant_ou_rep = MONTH) %>%
+  separate(date_recolte,c("YEAR2","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  select(!(c("YEAR2","DAY"))) %>%
+  rename(MONTH_recolte = MONTH) %>%
+  transform(MONTH_plant_ou_rep = as.numeric(MONTH_plant_ou_rep),
+            MONTH_recolte = as.numeric(MONTH_recolte)) %>%
+  transform(MONTH_plant_ou_rep = month.abb[MONTH_plant_ou_rep],
+            MONTH_recolte = month.abb[MONTH_recolte]) %>%
+  # ajout de la pluvio et des températures
+  mutate(
+    pluvio = case_when(
+      essai == "P25_ITK" & YEAR == "2015_2016" ~ 1062.7,
+      essai == "P42" & YEAR == "2015_2016" ~ 1138,
+      essai == "P42" & YEAR == "2016_2017" ~ 1321.1,
+      essai == "P42" & YEAR == "2017_2018" ~ 1524.2,
+      essai == "P42" & YEAR == "2018_2019" ~ 1249	,
+      essai == "P42" & YEAR == "2019_2020" ~ 713,
+      TRUE ~ pluvio
+    ),
+    temp = case_when(
+      essai == "P25_ITK" & YEAR == "2015_2016" ~ 24.15415,
+      essai == "P42" & YEAR == "2015_2016" ~ 24.05504,
+      essai == "P42" & YEAR == "2016_2017" ~ 24.27401,
+      essai == "P42" & YEAR == "2017_2018" ~ 24.05222,
+      essai == "P42" & YEAR == "2018_2019" ~ 24.99756,
+      essai == "P42" & YEAR == "2019_2020" ~ 22.10714,
+      TRUE ~ temp
+    )) %>%
+  relocate(c(cycle_detailed:MONTH_recolte), .after = Altitude)
+
+# ajout des interventions
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+data_3_objectif = read.xlsx("Objectif_rdt_rec.xlsx")
+nb_chimique = read.xlsx("old/nb_chimique.xlsx")
+nb_meca = read.xlsx("old/nb_meca.xlsx")
+nb_manuel = read.xlsx("old/nb_manu.xlsx")
+
+data_3_objectif = data_3_objectif %>%
+  mutate(
+    modalite_ercane = case_when(
+      modalite_ercane %in% c("Tréf") ~ "Tref",
+      TRUE ~ modalite_ercane
+    )) %>%
+  left_join(nb_chimique) %>%
+  left_join(nb_meca) %>%
+  left_join(nb_manuel) %>%
+  rename(nb_chimique = n) %>%
+  relocate(c("nb_chimique","nb_meca","nb_manu"), .after = modalite3)
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+
+
+```
+
+# last modifications
+
+```{r}
+# ajout des blocs sur P42
+
+data_3_objectif = data_3_objectif %>%
+  mutate(
+    Bloc = case_when(
+      essai %in% c("P42") & YEAR %in% c("2018_2019","2019_2020") & parcelle %in% c("1","2","3","4") ~ 1,
+      essai %in% c("P42") & YEAR %in% c("2018_2019","2019_2020") & parcelle %in% c("5","6","7","8") ~ 2,
+      TRUE ~ Bloc
+    ))
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+
+
+```
+
+
+
+# MANQUES IFTH
+```{r}
+data_3_objectif = read.xlsx("Objectif_rdt_rec.xlsx")
+
+data_IFTH = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",7) %>%
+  select(essai,YEAR,parcelle,IFTH)
+
+# changing parcelle
+data_IFTH$parcelle = sub('P','',data_IFTH$parcelle)
+
+data_IFTH = data_IFTH %>%
+  filter(parcelle %!in% c("Bordures","Bordure","Chemins"))
+
+data_IFTH = data_IFTH %>%
+  separate(parcelle, c("P1","P2"),remove = FALSE) %>%
+    pivot_longer(cols = "P1":"P2",names_to = "parcelle2",values_to = "parcelle3") %>%
+    filter(!(is.na(parcelle) & parcelle2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+    filter(!(!is.na(parcelle) & is.na(parcelle3))) %>%
+    select(!c("parcelle","parcelle2")) %>%
+    rename(parcelle = parcelle3)
+
+data_IFTH = data_IFTH %>%
+  unique() %>%
+  drop_na(IFTH) %>%
+  transform(IFTH = as.numeric(IFTH))
+  
+
+data_3_objectif = data_3_objectif %>%
+  left_join(data_IFTH,by = c("essai", "YEAR", "parcelle")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y))
+
+```
+
+## P12
+
+```{r}
+# manually
+# P12 
+
+# P12
+# 2017-2018
+data11_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P12 2017-2018.xlsx",2) # IFTH
+data11_4 = data11_4[1:15,]
+# 2018-2019
+data12_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P12 2018-2019.xlsx",2) # IFTH
+data12_4 = data12_4[1:12,]
+# 2019-2020
+data13_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P12 2019-2020.xlsx",2) # IFTH
+data13_4 = data13_4[1:7,]
+
+# dates
+data11_4$date.plantation.ou.coupe = convertToDate(data11_4$date.plantation.ou.coupe)
+data12_4$date.plantation.ou.coupe = convertToDate(data12_4$date.plantation.ou.coupe)
+data13_4$date.plantation.ou.coupe = convertToDate(data13_4$date.plantation.ou.coupe)
+
+# YEAR
+data11_4 = data11_4 %>% # pas de bloc
+  separate(date.plantation.ou.coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data12_4 = data12_4 %>% # pas de bloc
+  separate(date.plantation.ou.coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data13_4 = data13_4 %>% # pas de bloc
+  separate(date.plantation.ou.coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+
+# synchro 2018
+data_p12_1 = data11_4 %>%
+  select(essai,YEAR,modalite,ift.total.reel) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  separate(modalite, c("M1","M2"),remove = FALSE) %>%
+  pivot_longer(cols = "M1":"M2",names_to = "modalite2",values_to = "modalite3") %>%
+  filter(!(is.na(modalite) & modalite2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+  filter(!(!is.na(modalite) & is.na(modalite3))) %>%
+  select(!c("modalite","modalite2")) %>%
+  rename(modalite_ercane = modalite3,
+         IFTH = ift.total.reel) %>%
+  filter(modalite_ercane %!in% "et")
+data_p12_1$YEAR = paste(data_p12_1$YEAR-1, data_p12_1$YEAR,sep ="_")
+
+data_p12_1 = data_p12_1 %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup()
+
+# synchro 2019
+data_p12_2 = data12_4 %>%
+  select(essai,YEAR,modalite,ift.total.reel) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  separate(modalite, c("M1","M2","M3"),remove = FALSE) %>%
+  pivot_longer(cols = "M1":"M3",names_to = "modalite2",values_to = "modalite3") %>%
+  filter(!(is.na(modalite) & modalite2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+  filter(!(!is.na(modalite) & is.na(modalite3))) %>%
+  select(!c("modalite","modalite2")) %>%
+  rename(modalite_ercane = modalite3,
+         IFTH = ift.total.reel)
+data_p12_2$YEAR = paste(data_p12_2$YEAR-1, data_p12_2$YEAR,sep ="_")
+
+data_p12_2 = data_p12_2 %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup()
+
+# synchro 2020
+data_p12_3 = data13_4 %>%
+  select(essai,YEAR,modalite,ift.total.reel) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  separate(modalite, c("M1","M2"),remove = FALSE) %>%
+  pivot_longer(cols = "M1":"M2",names_to = "modalite2",values_to = "modalite3") %>%
+  filter(!(is.na(modalite) & modalite2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+  filter(!(!is.na(modalite) & is.na(modalite3))) %>%
+  select(!c("modalite","modalite2")) %>%
+  rename(modalite_ercane = modalite3,
+         IFTH = ift.total.reel)
+data_p12_3$YEAR = paste(data_p12_3$YEAR-1, data_p12_3$YEAR,sep ="_")
+
+data_p12_3 = data_p12_3 %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup()
+
+data_3_objectif = data_3_objectif %>%
+  left_join(data_p12_1,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y)) %>%
+  left_join(data_p12_2,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y)) %>%
+  left_join(data_p12_3,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y))
+
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+
+
+
+
+```
+
+## P25_ITK
+
+```{r}
+data14_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 ITK 2014-2015.xlsx",2) # IFTH
+data14_4 = data14_4[1:10,]
+
+# dates
+data14_4$date.plantation_ou_coupe = convertToDate(data14_4$date.plantation_ou_coupe)
+
+# YEAR
+data14_4 = data14_4 %>% # pas de bloc
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data14_4$YEAR = paste(data14_4$YEAR-1, data14_4$YEAR,sep ="_")
+
+# synchro
+data_p25_ITK = data14_4 %>%
+  select(essai,YEAR,modalite,ift_total_reel) %>%
+  rename(modalite_ercane = modalite,
+         IFTH = ift_total_reel)
+
+data_p25_ITK = data_p25_ITK %>%
+  transform(IFTH = as.numeric(IFTH)) %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup() %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 ITK" ~ "P25_ITK",
+    TRUE ~ essai
+  ))
+
+data_3_objectif = data_3_objectif %>%
+  left_join(data_p25_ITK,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y))
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+
+
+
+```
+
+
+## P25_MONTAGNE
+
+```{r}
+# P25_montagne
+# 2017-2018
+data16_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2017-2018.xlsx",2) # IFTH
+data16_4 = data16_4[1:22,]
+# 2018-2019
+data17_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2018-2019.xlsx",4) # IFTH
+data17_4 = data17_4[1:13,]
+# 2019-2020
+data18_4 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2019-2020.xlsx",4) # IFTH
+data18_4 = data18_4[1:12,]
+
+# dates
+data16_4$date.plantation.ou.coupe = convertToDate(data16_4$date.plantation.ou.coupe)
+data17_4$date.plantation.ou.coupe = convertToDate(data17_4$date.plantation.ou.coupe)
+data18_4$date.plantation.ou.coupe = convertToDate(data18_4$date.plantation.ou.coupe)
+
+# YEAR
+data16_4 = data16_4 %>% # pas de bloc
+  separate(date.plantation.ou.coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data17_4 = data17_4 %>% # pas de bloc
+  separate(date.plantation.ou.coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data18_4 = data18_4 %>% # pas de bloc
+  separate(date.plantation.ou.coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+# synchro 2018
+data_p25_M_1 = data16_4 %>%
+  select(essai,YEAR,modalite,ift.total.reel) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  rename(modalite_ercane = modalite,
+         IFTH = ift.total.reel)
+data_p25_M_1$YEAR = paste(data_p25_M_1$YEAR-1, data_p25_M_1$YEAR,sep ="_")
+
+data_p25_M_1 = data_p25_M_1 %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup() %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 montagne" ~ "P25_montagne",
+    TRUE ~ essai
+  ))
+
+# synchro 2019
+data_p25_M_2 = data17_4 %>%
+  select(essai,YEAR,modalite,ift.total.reel) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  rename(modalite_ercane = modalite,
+         IFTH = ift.total.reel)
+data_p25_M_2$YEAR = paste(data_p25_M_2$YEAR-1, data_p25_M_2$YEAR,sep ="_")
+
+data_p25_M_2 = data_p25_M_2 %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup() %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 montagne" ~ "P25_montagne",
+    TRUE ~ essai
+  ))
+
+# synchro 2020
+data_p25_M_3 = data18_4 %>%
+  select(essai,YEAR,modalite,ift.total.reel) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  rename(modalite_ercane = modalite,
+         IFTH = ift.total.reel)
+data_p25_M_3$YEAR = paste(data_p25_M_3$YEAR-1, data_p25_M_3$YEAR,sep ="_")
+
+data_p25_M_3 = data_p25_M_3 %>%
+  group_by(across(c(-IFTH))) %>%
+  summarize(IFTH = sum(IFTH)) %>%
+  ungroup() %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 montagne" ~ "P25_montagne",
+    TRUE ~ essai
+  ))
+
+# join
+data_3_objectif = data_3_objectif %>%
+  left_join(data_p25_M_1,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y)) %>%
+  left_join(data_p25_M_2,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y)) %>%
+  left_join(data_p25_M_3,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3) %>%
+  mutate(
+    IFTH = case_when(
+      IFTH.x == IFTH.y ~ IFTH.x,
+      is.na(IFTH.x) ~ IFTH.y,
+      TRUE ~ IFTH.x
+    )) %>%
+  relocate(c(IFTH.x,IFTH.y,IFTH),.after = modalite3) %>%
+  select(-c(IFTH.x,IFTH.y))
+
+data_3_objectif %>%
+  select(essai,YEAR,IFTH,modalite_ercane) %>%
+  filter(essai == "P25_montagne", YEAR == "2017_2018")
+
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+```
+
+
+
+# MANQUE REC
+
+```{r, data_REC}
+data_REC = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",8) %>%
+  select(essai,YEAR,modalite_ercane,parcelle,date.notation,Rec_adv_IR)
+
+data_REC$date.notation = convertToDate(data_REC$date.notation)
+
+# changing parcelle
+data_REC$parcelle = sub('P','',data_REC$parcelle)
+
+data_REC = data_REC %>%
+    separate(parcelle, c("P1","P2"),remove = FALSE) %>%
+    pivot_longer(cols = "P1":"P2",names_to = "parcelle2",values_to = "parcelle3") %>%
+    filter(!(is.na(parcelle) & parcelle2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+    filter(!(!is.na(parcelle) & is.na(parcelle3))) %>%
+    select(!c("parcelle","parcelle2")) %>%
+    rename(parcelle = parcelle3)
+
+data_REC = data_REC %>%
+  select(-c(date.notation)) %>%
+  group_by(across(-c(Rec_adv_IR))) %>%
+  summarize(Rec_adv_IR = mean(Rec_adv_IR,na.rm = TRUE)) %>%
+  rename(Rec_globale_IR = Rec_adv_IR)
+
+data_3_objectif = data_3_objectif %>%
+  left_join(data_REC,by = c("essai", "YEAR","modalite_ercane","parcelle")) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y),.after = modalite3) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = Bloc) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y))
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+```
+
+## P12
+
+```{r}
+# P12
+# 2017-2018
+data11_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P12 2017-2018.xlsx",6) # Enherbement
+data11_1 = data11_1[1:70,]
+
+# 2018-2019
+data12_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P12 2018-2019.xlsx",7) # Enherbement
+data12_1 = data12_1[1:67,]
+
+# 2019-2020
+data13_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P12 2019-2020.xlsx",7) # Enherbement
+data13_1 = data13_1[2:40,]
+
+# dates
+data11_1$date.plantation_ou_coupe = convertToDate(data11_1$date.plantation_ou_coupe)
+data12_1$date.plantation_ou_coupe = convertToDate(data12_1$date.plantation_ou_coupe)
+data13_1$date.plantation_ou_coupe = convertToDate(data13_1$date.plantation_ou_coupe)
+
+# YEAR
+data11_1 = data11_1 %>% # pas de bloc
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data12_1 = data12_1 %>% # pas de bloc
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data13_1 = data13_1 %>% # pas de bloc
+  select(essai,date.plantation_ou_coupe,modalité,parcelle,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+# synchro 2018
+data_p12_REC_1 = data11_1 %>%
+  select(essai,YEAR,modalite,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  filter(modalite %!in% c("Bordure, 5ème lignes","Allées, chemins"))
+data_p12_REC_1$YEAR = paste(data_p12_REC_1$YEAR-1, data_p12_REC_1$YEAR,sep ="_")
+
+
+data_p12_REC_1 = data_p12_REC_1 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR,
+         modalite_ercane = modalite) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R))
+
+# synchro 2019
+data_p12_REC_2 = data12_1 %>%
+  select(essai,YEAR,modalite,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  filter(modalite %!in% c("Bordure, 5ème lignes","Allées, chemins"))
+data_p12_REC_2$YEAR = paste(data_p12_REC_2$YEAR-1, data_p12_REC_2$YEAR,sep ="_")
+
+data_p12_REC_2 = data_p12_REC_2 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR,
+         modalite_ercane = modalite) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R))
+
+# synchro 2020
+data_p12_REC_3 = data13_1 %>%
+  select(essai,YEAR,modalite,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  filter(modalite %!in% c("Bordure, 5ème lignes","Allées, chemins","Bordures & allées & lignes surnuméraires"))
+data_p12_REC_3$YEAR = paste(data_p12_REC_3$YEAR-1, data_p12_REC_3$YEAR,sep ="_")
+
+data_p12_REC_3 = data_p12_REC_3 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR,
+         modalite_ercane = modalite) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R))
+
+# JOIN
+data_3_objectif = data_3_objectif %>% # at this stage, i'll just sum up IR REC
+  mutate(
+  modalite_ercane = case_when(
+    modalite_ercane == "TP" & essai == "P12" & YEAR == "2017_2018" ~ "Tref",
+    TRUE ~ modalite_ercane
+  )) %>%
+  left_join(data_p12_REC_1,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y)) %>%
+  left_join(data_p12_REC_2,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y)) %>%
+  left_join(data_p12_REC_3,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y))
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+```
+
+## P25_ITK
+
+```{r}
+# P25_ITK
+# 2014-2015
+data14_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 ITK 2014-2015.xlsx",6) # Enherbement
+data14_1 = data14_1[1:168,]
+
+# dates
+data14_1$date.plantation_ou_coupe = convertToDate(data14_1$date.plantation_ou_coupe)
+
+# YEAR
+data_p25_ITK_REC_1 = data14_1 %>%
+  select(essai,date.plantation_ou_coupe,parcelle,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY")))
+data_p25_ITK_REC_1$YEAR = paste(data_p25_ITK_REC_1$YEAR-1, data_p25_ITK_REC_1$YEAR,sep ="_")
+data_p25_ITK_REC_1$parcelle = sub('P','',data_p25_ITK_REC_1$parcelle)
+
+# synchro 2018
+data_p25_ITK_REC_1 = data_p25_ITK_REC_1 %>%
+  select(essai,YEAR,parcelle,Note_adv_plein,Note_adv_R,Note_adv_IR)
+
+data_p25_ITK_REC_1 = data_p25_ITK_REC_1 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein,na.rm = TRUE),
+            Rec_globale_R = mean(Rec_globale_R,na.rm = TRUE),
+            Rec_globale_IR = mean(Rec_globale_IR,na.rm = TRUE)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R)) %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 ITK" ~ "P25_ITK",
+    TRUE ~ essai
+  ))
+
+# JOIN
+data_3_objectif = data_3_objectif %>% # at this stage, i'll just sum up IR REC
+  left_join(data_p25_ITK_REC_1,by = c("essai", "YEAR", "parcelle")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y))
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+```
+
+## P25_MONTAGNE
+
+```{r}
+# P25_montagne
+# 2017-2018
+data16_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2017-2018.xlsx",10) # Enherbement
+data16_1 = data16_1[1:132,]
+
+# 2018-2019
+data17_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2018-2019.xlsx",11) # Enherbement
+data17_1 = data17_1[1:124,]
+
+# 2019-2020
+data18_1 = read.xlsx("DATA/data_ERCANE/ENREGISTREMENT DONNEES P25 montagne 2019-2020.xlsx",11) # Enherbement
+data18_1 = data18_1[1:146,]
+
+# dates
+data16_1$date.plantation_ou_coupe = convertToDate(data16_1$date.plantation_ou_coupe)
+data17_1$date.plantation_ou_coupe = convertToDate(data17_1$date.plantation_ou_coupe)
+data18_1$date.plantation_ou_coupe = convertToDate(data18_1$date.plantation_ou_coupe)
+
+# YEAR
+data16_1 = data16_1 %>% 
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+data17_1 = data17_1 %>% # pas de bloc
+  select(essai,date.plantation_ou_coupe,modalité,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+
+
+data18_1 = data18_1 %>% # pas de bloc
+  separate(date.plantation_ou_coupe,c("YEAR","MONTH","DAY"),remove = FALSE) %>% # adding year column
+  transform(YEAR = as.numeric(YEAR) + 1) %>%
+  select(!(c("MONTH","DAY"))) %>%
+  rename(modalite = modalité)
+#data18_1$Bloc = rep(c("1","1","1","1","1","2","2","2","2","2"))
+
+# synchro 2018
+data_p25_M_1 = data16_1 %>%
+  filter(modalite %!in% c("Bordures","Allees")) %>%
+  select(essai,YEAR,modalite,bloc,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  rename(modalite_ercane = modalite,
+         Bloc = bloc)
+data_p25_M_1$YEAR = paste(data_p25_M_1$YEAR-1, data_p25_M_1$YEAR,sep ="_")
+data_p25_M_1$Bloc = sub('B','',data_p25_M_1$Bloc)
+
+data_p25_M_1 = data_p25_M_1 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R)) %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 montagne" ~ "P25_montagne",
+    TRUE ~ essai
+  ))
+
+# synchro 2019
+data_p25_M_2 = data17_1 %>%
+  filter(modalite %!in% c("Bordures","Allees")) %>%
+  select(essai,YEAR,modalite,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  rename(modalite_ercane = modalite)
+data_p25_M_2$YEAR = paste(data_p25_M_2$YEAR-1, data_p25_M_2$YEAR,sep ="_")
+
+data_p25_M_2 = data_p25_M_2 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R)) %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 montagne" ~ "P25_montagne",
+    TRUE ~ essai
+  ))
+
+# synchro 2020
+data_p25_M_3 = data18_1 %>%
+  filter(modalite %!in% c("Bordures","Allees")) %>%
+  select(essai,YEAR,modalite,Note_adv_plein,Note_adv_R,Note_adv_IR) %>%
+  mutate(
+  modalite = case_when(
+    modalite == "Tréf" ~ "Tref",
+    TRUE ~ modalite
+  )) %>%
+  rename(modalite_ercane = modalite)
+data_p25_M_3$YEAR = paste(data_p25_M_3$YEAR-1, data_p25_M_3$YEAR,sep ="_")
+
+data_p25_M_3 = data_p25_M_3 %>%
+  rename(Rec_globale_plein = Note_adv_plein,
+         Rec_globale_R = Note_adv_R,
+         Rec_globale_IR = Note_adv_IR) %>%
+  group_by(across(-c(Rec_globale_plein,Rec_globale_R,Rec_globale_IR))) %>%
+  summarize(Rec_globale_plein = mean(Rec_globale_plein),
+            Rec_globale_R = mean(Rec_globale_R),
+            Rec_globale_IR = mean(Rec_globale_IR)) %>%
+  ungroup() %>%
+  select(-c(Rec_globale_plein,Rec_globale_R)) %>%
+  mutate(
+  essai = case_when(
+    essai == "P25 montagne" ~ "P25_montagne",
+    TRUE ~ essai
+  ))
+
+# JOIN
+data_3_objectif = data_3_objectif %>% # at this stage, i'll just sum up IR REC
+  left_join(data_p25_M_1 %>%
+              transform(Bloc = as.numeric(Bloc)),
+            by = c("essai", "YEAR", "modalite_ercane","Bloc")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y)) %>%
+  left_join(data_p25_M_2,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y)) %>%
+  left_join(data_p25_M_3,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  mutate(
+    Rec_globale_IR = case_when(
+      Rec_globale_IR.x == Rec_globale_IR.y ~ Rec_globale_IR.x,
+      is.na(Rec_globale_IR.x) ~ Rec_globale_IR.y,
+      TRUE ~ Rec_globale_IR.x
+    )) %>%
+  relocate(c(Rec_globale_IR.x,Rec_globale_IR.y,Rec_globale_IR),.after = modalite3) %>%
+  select(-c(Rec_globale_IR.x,Rec_globale_IR.y)) 
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+```
+
+
+# MANQUES RDT
+
+```{r}
+data_RDT = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",7) %>%
+  select(essai,YEAR,parcelle,Yield_CAS_tha)
+
+# changing parcelle
+data_RDT$parcelle = sub('P','',data_RDT$parcelle)
+
+data_RDT = data_RDT %>%
+  filter(parcelle %!in% c("Bordures","Bordure","Chemins"))
+
+data_RDT = data_RDT %>%
+  separate(parcelle, c("P1","P2"),remove = FALSE) %>%
+    pivot_longer(cols = "P1":"P2",names_to = "parcelle2",values_to = "parcelle3") %>%
+    filter(!(is.na(parcelle) & parcelle2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+    filter(!(!is.na(parcelle) & is.na(parcelle3))) %>%
+    select(!c("parcelle","parcelle2")) %>%
+    rename(parcelle = parcelle3)
+
+data_RDT = data_RDT %>%
+  unique() %>%
+  drop_na(Yield_CAS_tha) %>%
+  transform(Yield_CAS_tha = as.numeric(Yield_CAS_tha))
+  
+
+data_3_objectif = data_3_objectif %>%
+  left_join(data_RDT,by = c("essai", "YEAR", "parcelle")) %>%
+  relocate(c(Yield_CAS_tha.x,Yield_CAS_tha.y),.after = modalite3) %>%
+  mutate(
+    Yield_CAS_tha = case_when(
+      Yield_CAS_tha.x == Yield_CAS_tha.y ~ Yield_CAS_tha.x,
+      is.na(Yield_CAS_tha.x) ~ Yield_CAS_tha.y,
+      TRUE ~ Yield_CAS_tha.x
+    )) %>%
+  relocate(c(Yield_CAS_tha.x,Yield_CAS_tha.y,Yield_CAS_tha),.after = modalite3) %>%
+  select(-c(Yield_CAS_tha.x,Yield_CAS_tha.y))
+  
+
+data_3_objectif = data_3_objectif %>%
+  rename(pratique = modalite3)
+
+write.xlsx(data_3_objectif,"Objectif_rdt_rec.xlsx")
+
+```
+
+
+```{r, data pluvio}
+raw_pluvio = read.csv("DATA/data_other/Données météos 2010-22.csv",sep=";")
+
+raw_pluvio %>%
+  transform(Jour = ymd(dmy(Jour))) %>%
+  select(-c(Numero.de.la.station,Nom.de.la.station)) %>%
+  filter(Jour >= "2017-08-23" & Jour <= "2018-08-02") %>%
+  summarize(Pluvio.mm. = sum(Pluvio.mm.,na.rm = TRUE),
+            Tmoy = mean(Tmoy,na.rm = TRUE),
+            Tmin = mean(Tmin,na.rm = TRUE),
+            Tmax = mean(Tmax,na.rm = TRUE))
+  
+```
+
+
+
+
+# STAT DESCRIPTIVE
+
+#### NA's
+
+P25_ITK : 2012_2013 (recouvrement & IFTH) | 2013_2014 (recouvrement) | 2014_2015 (IFTH)
+
+
+```{r}
+# number of essays
+final_esp %>%
+  select(essai) %>%
+  group_by(essai) %>%
+  count()
+```
+
+
+```{r}
+# factor variable as factor
+data_3_objectif$essai=factor(data_3_objectif$essai)
+data_3_objectif$YEAR=factor(data_3_objectif$YEAR)
+data_3_objectif$Bloc=factor(data_3_objectif$Bloc)
+data_3_objectif$modalite3=factor(data_3_objectif$modalite3)
+data_3_objectif$Localisation=factor(data_3_objectif$Localisation)
+data_3_objectif$Altitude=factor(data_3_objectif$Altitude)
+data_3_objectif$cycle_detailed=factor(data_3_objectif$cycle_detailed)
+data_3_objectif$cycle=factor(data_3_objectif$cycle) # corrélé avec cycle_detailed?
+data_3_objectif$MONTH_plant_ou_rep=factor(data_3_objectif$MONTH_plant_ou_rep,levels = month.abb)
+data_3_objectif$MONTH_recolte=factor(data_3_objectif$MONTH_recolte,levels = month.abb) # corrélé avec MONTH_plantation_repousse ?
+
+
+summary(data_3_objectif)
+
+table(data_3_objectif$parcelle)
+
+```
+
+ 
+```{r}
+# Qu'est ce que je peux assembler? (qls sont les dipositifs par années?)
+
+# P12 : OK
+# P25_ITK : presque OK
+# P25_montagne : OK
+# P42 : OK 
+
+# recouvrement (checker mensuellmeent après)
+
+
+data_3_objectif %>%
+  filter(essai == "P12") %>%
+  select(modalite_ercane,modalite3) %>%
+  unique()
+
+raw_ercane_database %>%
+  filter(essai == "P25_LEG",YEAR == "2019_2020") %>%
+  select(modalite_ercane,modalite_global,modalite2) %>%
+  unique()
+
+raw_ercane_database %>%
+  filter(essai == "P25_ITK",YEAR == "2014_2015") %>%
+  select(modalite_ercane,modalite_global,modalite2) %>%
+  unique()
+
+
+```
+
+# Visualisations
+
+```{r}
+data_3_objectif <- read.xlsx("Objectif_rdt_rec.xlsx")
+```
+
+
+#### question 1 ----------------------------------------------------------------------------------------------------
+####  Est-ce qu’il y a une différence de RENDEMENT de la canne à sucre entre les différentes modalités de désherbage ?
+
+**à faire**
+-Localisation
+-
+
+```{r, RENDEMENT viz}
+
+toto <- data_3_objectif %>% filter(modalite3 %in% c("Broyage", "Sarclage", "PDS", "TP", "TE"))
+
+# RENDEMENT
+# modalite vs rendement
+data_3_objectif$modalite3 = str_wrap(data_3_objectif$modalite3, width = 10)
+ggplot(toto, aes(x=modalite3, y=Yield_CAS_tha)) + geom_boxplot() +
+  stat_summary(fun.y="mean")
+
+ggplot(toto, aes(x=modalite3, y=IFTH)) + geom_boxplot() +
+  stat_summary(fun.y="mean")
+
+
+ggplot(toto, aes(x=nb_manu, y=Yield_CAS_tha, color=modalite3)) + geom_point() + geom_smooth(method=lm)
+
+ggplot(toto, aes(x=nb_chimique, y=Yield_CAS_tha, color=modalite3)) + geom_point() + geom_smooth(method=lm)
+
+# essai vs rendement
+ggplot(data_3_objectif, aes(x=essai, y=Yield_CAS_tha)) + geom_boxplot()
+ggplot(data_3_objectif, aes(x=essai, y=Yield_CAS_tha, fill = modalite3)) + geom_boxplot()
+# rendement vs altitude
+ggplot(data_3_objectif, aes(x=Altitude, y=Yield_CAS_tha, fill = modalite3)) + geom_boxplot()
+# rendement vs MONTH plantation/repousse
+ggplot(data_3_objectif, aes(x=MONTH_plant_ou_rep, y=Yield_CAS_tha, fill = modalite3)) + # essays are not evenly distributed
+  geom_boxplot()
+# rendement vs cycle
+ggplot(data_3_objectif, aes(x=cycle, y=Yield_CAS_tha, fill = essai)) +
+  geom_boxplot()
+# rendement vs cycle_detailed
+ggplot(data_3_objectif, aes(x=cycle_detailed, y=Yield_CAS_tha, fill = essai)) +
+  geom_boxplot()
+# rendement vs modalite
+ggplot(data_3_objectif, aes(x=modalite3, y=Yield_CAS_tha)) +
+  geom_boxplot()
+# rendement vs annee (corrélé avec pluvio ? temp ?)
+ggplot(data_3_objectif, aes(x=YEAR, y=Yield_CAS_tha, fill = essai)) +
+  geom_boxplot()
+
+# rendement vs IFTH ()
+ggplot(data_3_objectif, aes(x=Yield_CAS_tha, y=IFTH, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+# rendement vs Altitude ()
+ggplot(data_3_objectif, aes(x=Altitude, y=Yield_CAS_tha, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+# rendement vs pluvio ()
+ggplot(data_3_objectif, aes(x=pluvio, y=Yield_CAS_tha, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+# rendement vs temp ()
+ggplot(data_3_objectif, aes(x=temp, y=Yield_CAS_tha, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+
+data_3_objectif %>%
+  filter(essai == "P42")
+```
+
+
+```{r, RENDEMENT lm}
+data <- data_3_objectif[!is.na(data_3_objectif$Yield_CAS_tha), ]
+data <- data[!is.na(data$Bloc), ]
+
+
+mod0 <- gls(Yield_CAS_tha ~ modalite3, 
+            data=data)
+mod1 <- lme(Yield_CAS_tha ~ modalite3,
+            random=list(~1|essai), data=data)
+mod2 <- lme(Yield_CAS_tha ~ modalite3,
+            random=list(~1|essai, ~1|YEAR), data=data)
+
+mod3 <- lme(Yield_CAS_tha ~ modalite3,
+            random=list(~1|essai, ~1|Bloc), data=data)
+
+AIC(mod0, mod1, mod2, mod3)
+
+summary(mod3)
+
+mod1 <- lme(Yield_CAS_tha ~ modalite3 + cycle_detailed + pluvio + temp + MONTH_plant_ou_rep,
+    random=list(~1|essai, ~1|Bloc), data=data, method="ML")
+anova(mod1, type="marginal")
+
+
+summary(mod1)
+MuMIn::r.squaredGLMM(mod1)
+
+```
+
+# question 2 --------------------------------------------------------------
+
+# 2.	Comparaison du RECOUVREMENT moyen annuel des adventices (de la coupe à la coupe)
+
+# Est-ce qu’il y a une différence significative du recouvrement moyen annuel des 
+# adventices (1) en général (sans prendre en compte les différentes espèces) et 
+# (2) pour différentes espèces d’adventices, en fonction des différentes 
+# modalités de désherbage ?
+
+# 2.1 Adventices en général
+# Adventices_IR moyenné par année
+
+```{r, RECOUVREMENT viz}
+# recouvrement annuelle
+# essai vs recouvrement
+ggplot(data_3_objectif, aes(x=modalite3, y=Rec_globale_IR)) + geom_boxplot()
+ggplot(data_3_objectif, aes(x=modalite3, y=Rec_globale_IR, fill = essai)) + geom_boxplot()
+# recouvrement vs altitude
+ggplot(data_3_objectif, aes(x=Altitude, y=Rec_globale_IR, fill = modalite3)) + geom_boxplot() # pas de TE en basse altitude
+# recouvrement vs MONTH plantation/repousse
+ggplot(data_3_objectif, aes(x=MONTH_plant_ou_rep, y=Rec_globale_IR, fill = modalite3)) +
+  geom_boxplot()
+# recouvrement vs MONTH plantation/repousse
+ggplot(data_3_objectif, aes(x=MONTH_plant_ou_rep, y=Rec_globale_IR)) +
+  geom_boxplot()
+# recouvrement vs cycle
+ggplot(data_3_objectif, aes(x=cycle, y=Rec_globale_IR)) +
+  geom_boxplot()
+# recouvrement vs cycle_detailed
+ggplot(data_3_objectif, aes(x=cycle_detailed, y=Rec_globale_IR)) +
+  geom_boxplot()
+# recouvrement vs modalite
+ggplot(data_3_objectif, aes(x=modalite3, y=Rec_globale_IR, fill = essai)) +
+  geom_boxplot()
+# recouvrement vs annee (corrélé avec pluvio ? temp ?)
+ggplot(data_3_objectif, aes(x=YEAR, y=Rec_globale_IR)) +
+  geom_boxplot()
+
+# recouvrement vs IFTH ()
+ggplot(data_3_objectif, aes(x=Rec_globale_IR, y=IFTH, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+# recouvrement vs Altitude ()
+ggplot(data_3_objectif, aes(x=Altitude, y=Rec_globale_IR, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+# recouvrement vs pluvio ()
+ggplot(data_3_objectif, aes(x=pluvio, y=Rec_globale_IR, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+# recouvrement vs temp ()
+ggplot(data_3_objectif, aes(x=temp, y=Rec_globale_IR, color=modalite3)) + geom_point() + geom_smooth(method="lm")
+
+# RECOUVREMENT
+# recouvrement vs modalite
+# ggplot(data_3_objectif, aes(x=modalite3, y=Rec_globale_plein)) +
+#  geom_boxplot()
+
+```
+
+```{r, RECOUVREMENT lm}
+data <- data_3_objectif[!is.na(data_3_objectif$Rec_globale_plein), ]
+data <- data[!is.na(data$Bloc), ]
+
+
+mod0 <- gls(Rec_globale_plein ~ modalite3, 
+            data=data)
+mod1 <- lme(Rec_globale_plein ~ modalite3,
+            random=list(~1|essai), data=data)
+mod2 <- lme(Rec_globale_plein ~ modalite3,
+            random=list(~1|essai, ~1|YEAR), data=data)
+
+mod3 <- lme(Rec_globale_plein ~ modalite3,
+            random=list(~1|essai, ~1|Bloc), data=data)
+
+AIC(mod0, mod1, mod2, mod3)
+
+summary(mod3)
+
+mod1 <- lme(Rec_globale_plein ~ modalite3 + cycle + pluvio + MONTH_plant_ou_rep,
+    random=list(~1|essai, ~1|Bloc), data=data, method="ML")
+anova(mod1, type="marginal")
+
+
+summary(mod1)
+MuMIn::r.squaredGLMM(mod1)
+
+```
+
+```{r, count}
+# essais par modalités
+data_3_objectif %>%
+  group_by(modalite3) %>%
+  ggplot(aes(modalite3)) +
+  geom_bar(aes(fill = essai)) +
+  theme(axis.text.x=element_text(angle=45))
+
+# modalites par essais
+data_3_objectif %>%
+  group_by(essai) %>%
+  ggplot(aes(essai)) +
+  geom_bar(aes(fill = modalite3)) +
+  theme(axis.text.x=element_text(angle=45))
+
+# essais par month_plant_rep
+data_3_objectif %>%
+  group_by(MONTH_plant_ou_rep) %>%
+  ggplot(aes(MONTH_plant_ou_rep)) +
+  geom_bar(aes(fill = essai)) +
+  theme(axis.text.x=element_text(angle=45))
+```
+
+```{r, wrong file}
+data_3_objectif = read.xlsx("Objectif_rdt_rec.xlsx")
+
+data_IFTH = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",4) %>%
+  select(Essai,Year,modalite_ercane,"Dose.(L.ha.ou.kg.ha)") %>%
+  rename(essai = Essai,
+         YEAR = Year)
+
+data_IFTH = data_IFTH %>%
+  separate("Dose.(L.ha.ou.kg.ha)", into = c("A","B","C"),sep='\\+') 
+
+data_IFTH$A = as.numeric(data_IFTH$A)
+data_IFTH$B = as.numeric(data_IFTH$B)
+data_IFTH$C = as.numeric(data_IFTH$C)
+
+data_IFTH = data_IFTH %>%
+  mutate(IFTH = rowSums(across(c(A,B,C)))) %>%
+  select(-c(A,B,C)) %>%
+  na.omit(IFTH)
+
+# TRICK
+
+X = data_3_objectif %>%
+  select(essai,YEAR,modalite_ercane)
+
+Y = data_IFTH %>%
+  filter(modalite_ercane %in% c("All - TE","Toute la parcelle")) %>%
+  select(essai,YEAR) %>%
+  unique() %>%
+  left_join(X)
+
+non_all = data_IFTH %>%
+  filter(modalite_ercane %!in% c("All - TE","Toute la parcelle"))
+
+all = data_IFTH %>%
+  filter(modalite_ercane %in% c("All - TE","Toute la parcelle")) %>%
+  select(-c(modalite_ercane))
+
+Z = Y %>%
+  left_join(all) %>%
+  full_join(non_all)
+
+# sum IFTH
+data_IFTH = Z %>%
+  group_by(across(-c(IFTH))) %>%
+  summarize(IFTH = sum(IFTH))
+
+test = data_3_objectif %>%
+  left_join(data_IFTH,by = c("essai", "YEAR", "modalite_ercane")) %>%
+  relocate(c(IFTH.x,IFTH.y),.after = modalite3)
+
+
+```
+
