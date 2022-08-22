@@ -1,0 +1,439 @@
+---
+title: "DATA_intervention"
+output: html_document
+date: '2022-04-08'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(openxlsx)
+library(lubridate)
+```
+
+L'objectif de ce rmd est de récuperer les infos des deux fichiers d'intervention (raw_inter et raw_inter_matthias).
+Afin de pouvoir augmenter les variables modalités du fichier raw_mat_facteur.
+
+# LOAD DATA
+
+```{r eval = FALSE}
+# loading the data
+#raw_mat_facteur = read.xlsx("Objectif_rdt_rec.xlsx") # 837*12
+raw_inter = read.xlsx("DATA/data_other/Interventions_par_modalites.xlsx") # 595*16
+raw_inter_matthias = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",4) # interventions chimiques
+raw_inter_matthias2 = read.xlsx("DATA/data_matthias/ERCANE_DATABASE.xlsx",5) # interventions meca/manuel
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+#df_mat_facteur = raw_mat_facteur
+
+# renaming (to facilitate further joining)
+#df_mat_facteur = df_mat_facteur %>%
+#  rename(general2 = modalite2)
+
+# select columns needed first
+#mat_facteur = raw_mat_facteur %>%
+#  select(essai,YEAR,parcelle,modalite_ercane) %>%
+#  filter(essai == "Baleya")
+
+inter = raw_inter %>%
+#  filter(essai != "O. Fontaine") %>%
+  select(essai,campagne,parcelles,modalites,
+         Type_intervention,intervention_desh,Outils,localisation,
+          date_intervention_mesure) %>% # maybe only use this for essai p42
+         unique()
+inter$date_intervention_mesure = convertToDate(inter$date_intervention_mesure)
+  
+inter_matthias = raw_inter_matthias %>%
+  select(Essai,Year,modalite_ercane)  %>% # inclure les doses?
+  rename(essai = Essai,
+         YEAR = Year)
+
+inter %>%
+  filter(essai %in% c("P42") | (essai == "P25 ITK" & campagne == "2015_2016")) %>%
+  select(modalites) %>%
+  unique()
+
+```
+
+
+
+```{r eval = FALSE}
+# Standardiser les données (par rapport à FINAL_MAT_FACTEUR)
+test = inter %>%
+  as_tibble() %>%
+  rename(modalite_ercane = modalites, # renaming some variables 
+         parcelle = parcelles,
+         type_intervention = Type_intervention,
+         intervention = intervention_desh,
+         YEAR = campagne,
+         outil = Outils)
+
+```
+
+# OLD FILE
+
+```{r eval = FALSE}
+# STANDARDIZE EVERYTHING (toujours par rapport au fichier FINAL_MAT_FACTEUR)
+# Nettoyer toutes les cellules sales
+# 
+
+test = test %>%
+  # ADDING NEW COLUMNS
+  add_column(
+             general = NA) %>%
+  # RENAMING EVERYTHING
+  
+  # PARCELLE
+  mutate(parcelle=replace(parcelle, parcelle=="P1 à P8", "P1,P2,P3,P4,P5,P6,P7,P8")) %>%
+  mutate(parcelle=replace(parcelle, parcelle=="P5 à P8", "P5,P6,P7,P8")) %>%
+  mutate(parcelle=replace(parcelle, parcelle=="Toute la parcelle" | parcelle=="Toutes" | parcelle=="toutes",
+                          "Toute")) %>%
+  mutate(parcelle=replace(parcelle, parcelle=="Bordures & 5ème lignes", "Bordures5L")) %>%
+  # MODALITE
+  mutate(modalite_ercane=replace(modalite_ercane, modalite_ercane=="Toute la parcelle", "Toute")) %>%
+  mutate(modalite_ercane=replace(modalite_ercane, modalite_ercane=="m1;m2;m3;m4+TE", "M1,M2,M3,M4,TE")) %>%
+  # LOCALISATION
+  mutate(localisation=replace(localisation, localisation=="Interrang canne" | localisation=="Taches sur interrang",
+                              "IR")) %>%
+  mutate(localisation=replace(localisation, localisation=="Rang canne" | localisation=="Taches sur rang",
+                              "R")) %>%
+  mutate(localisation=replace(localisation, localisation=="Taches en plein", "Plein")) %>%
+  # GENERAL
+  mutate(general=replace(general, intervention=="Désherbage - Chimique", "Chimique")) %>%
+  mutate(general=replace(general, intervention=="Désherbage - Arrachage manuel" |
+                                intervention=="Désherbage - Sarclage manuel", "Manuel")) %>%
+  mutate(general=replace(general, intervention=="Désherbage - Mécanique" | intervention == "Désherbage - fauchage", "Mecanique")) %>%
+  mutate(general=replace(general, intervention=="Buttage", "Prepa_Sol")) %>%
+  mutate(general=replace(general, intervention=="Fanage paille" | intervention=="Retrait paille"
+                         | intervention=="Exportation Paille", "Paillage")) %>%
+  mutate(general=replace(general, intervention=="Epaillage Canne", "Epaillage")) %>%
+  mutate(general=replace(general, intervention=="Désherbage - Débroussaillage", "Debroussaillage")) %>%
+  mutate(general=replace(general, intervention=="Préparation sol", "Prepa_Sol")) %>%
+  # OUTILS
+  mutate(outil=replace(outil, outil=="Patte d'oie", "Pattes_doie")) %>%
+  mutate(outil=replace(outil, outil=="tondobroyeur", "Tondobroyeur")) %>%
+  mutate(outil=replace(outil, outil=="Balai chimique", "Balai_chimique")) %>%
+  mutate(outil=replace(outil, outil=="pulvé avec cache", "Pulve_avec_cache")) %>%
+  mutate(outil=replace(outil, outil=="Pulvérisateur à rampe", "Pulverisateur_a_rampe")) %>%
+  mutate(outil=replace(outil, outil=="Pulvé à rampe sur micro tracteur", "Pulve_a_rampe_sur_micro_tracteur")) %>%
+  mutate(outil=replace(outil, outil=="Pulvé à dos", "Pulve_a_dos")) %>%
+  mutate(outil=replace(outil, outil=="Soufleur à dos", "Soufleur_a_dos")) %>%
+  mutate(outil=replace(outil, outil=="Cover crop", "Cover_crop")) %>%
+  
+  # CASE_WHEN
+  
+  mutate(
+    outil = case_when(
+      intervention == "Désherbage - Sarclage manuel" ~ "Main",
+      intervention == "Désherbage - Débroussaillage" ~ "Debroussailleuse",
+      intervention == "Weedseeker" ~ "Weedseeker",
+      general == "Manuel" ~ "Main",
+      TRUE ~ outil
+    )
+  ) %>%
+  
+  # FILL general2
+  mutate(
+    general2 = case_when(
+      outil == "Pattes_doie" ~ "Sarclage",
+      outil == "Gyrobroyeur" | outil == "Tondobroyeur" ~ "Broyage",
+      TRUE ~ general
+    )
+  ) %>%
+  
+  # outil == "Rotofraise" ~ "Prepa_sol" 
+  mutate(
+    general = case_when(
+      outil == "Rotofraise" ~ "Prepa_sol",
+      TRUE ~ general
+    )
+  ) %>%
+  mutate(general2 = na_if(general2, "Mecanique")) %>%
+  relocate(c("parcelle","general","general2","outil"), .after = localisation)
+
+```
+
+
+```{r eval = FALSE}
+# PIVOT NOW
+test_pivot = test %>%
+  filter(!(essai == "P42" & YEAR %in% c("2020_2021","2021_2022"))) %>%
+  # transform "Toute" to their parcelle explicitly
+  mutate(
+    parcelle = case_when(
+      essai == "P12" & parcelle == "Toute" ~ "P1,P2,P3,P4,P5,P6",
+      essai == "P25 Montagne" & parcelle == "Toute" ~ "P1,P2,P3,P4,P5,P6",
+      essai == "P42" & parcelle == "Toute" & YEAR == "2018_2019" | YEAR == "2019_2020" ~ "P1,P2,P3,P4,P5,P6,P7,P8",
+      essai == "P42" & parcelle == "Toute" & YEAR == "2016_2017" | YEAR == "2017_2018" ~  
+        "P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11,P12,P13,P14,P15,P16,P17,P18,P19,P20,P21,P22,P23,P24",
+      essai == "O. Fontaine" & parcelle == "Toute" & YEAR == "2016_2017" ~ "P1,P2,P3,P4,P5,P6,P7,P8",
+      essai == "O. Fontaine" & parcelle == "Toute" ~ "P1,P2,P3,P4,P5,P6,P7",
+      TRUE ~ parcelle
+    )) %>%
+  mutate(
+    modalite_ercane = case_when(
+      essai == "P12" & modalite_ercane == "Toute" ~ "M1,M2,M3,M4,Tref",
+      essai == "P25 Montagne" & modalite_ercane == "Toute" ~ "M1,M2,M3,Tref",
+      essai == "P25 ITK" & modalite_ercane == "Toute" & YEAR == "2015_2016" ~ "M1,M2,M3,M4,TP,TE",
+      essai == "P42" & modalite_ercane == "Toute" & YEAR == "2018_2019" | YEAR == "2019_2020" ~ "M1,M2,M3,Tref",
+      essai == "P42" & modalite_ercane == "Toute" & YEAR == "2015_2016" | YEAR == "2016_2017" |
+        YEAR == "2017_2018" ~ "T01,T02,T11,T12,T21,T22",
+      essai == "O. Fontaine" & modalite_ercane == "Toute" & YEAR == "2015_2016" ~ "M1,M2,M3,M4,M5,M6,TP,TE",
+      essai == "O. Fontaine" & modalite_ercane == "Toute" & YEAR == "2016_2017" ~ "M1,M2,M3,TP",
+      essai == "O. Fontaine" & modalite_ercane == "Toute" & YEAR == "2017_2018" | YEAR == "2018_2019" |
+        YEAR == "2019_2020" ~ "M1,M2,TP",
+      TRUE ~ modalite_ercane
+    )) %>%
+  separate(parcelle, c("P1","P2","P3","P4","P5","P6","P7","P8","P9","P10",
+                       "P11","P12","P13","P14","P15","P16","P17","P18","P19",
+                       "P20","P21","P22","P23","P24"),
+           remove = FALSE) %>%
+  pivot_longer(cols = "P1":"P24",
+               names_to = "parcelle2",
+               values_to = "parcelle3") %>%
+  filter(!(is.na(parcelle) & parcelle2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+  filter(!(!is.na(parcelle) & is.na(parcelle3))) %>%
+  select(!c("parcelle","parcelle2")) %>%
+  rename(parcelle = parcelle3) %>%
+  select(essai,YEAR,localisation,parcelle,modalite_ercane,general,general2,outil,date_intervention_mesure) %>%
+  separate(modalite_ercane, c("M1","M2","M3","M4","M5","M6","M7","M8"),
+           remove = FALSE) %>%
+  pivot_longer(cols = "M1":"M8",
+                 names_to = "modalite2",
+                 values_to = "modalite3") %>%
+  filter(!(is.na(modalite_ercane) & modalite2 != "P1")) %>% # rajouter les autres conditions en fonction des autres essais
+  filter(!(!is.na(modalite_ercane) & is.na(modalite3))) %>%
+  select(!c("modalite_ercane","modalite2")) %>%
+  rename(modalite_ercane = modalite3) %>%
+  relocate(c("modalite_ercane","parcelle"), .after = localisation) %>%
+  mutate(
+    essai = case_when(
+      essai == "P25 Montagne" ~ "P25_montagne",
+      essai == "P25 ITK" ~ "P25_ITK",
+      essai == "O. Fontaine" ~ "O.Fontaine",
+      TRUE ~ essai
+    ))
+
+test_pivot$parcelle = sub('P','',test_pivot$parcelle)
+test_pivot$parcelle = sub('p','',test_pivot$parcelle)
+
+try = test_pivot %>%
+  unique() %>%
+  filter(general == "Chimique") %>%
+  select(essai,YEAR,modalite_ercane,parcelle,general,date_intervention_mesure) %>% # dois-je différer par localisation?
+  group_by(across(-c(general,date_intervention_mesure))) %>%
+  count()
+
+try2 = try %>%
+  ungroup() %>%
+  select(-c(parcelle)) %>%
+  unique()
+
+try_manu = test_pivot %>%
+  unique() %>%
+  filter(general %in% c("Manuel")) %>%
+  select(essai,YEAR,modalite_ercane,parcelle,general,date_intervention_mesure) %>% # dois-je différer par localisation?
+  group_by(across(-c(general,date_intervention_mesure))) %>%
+  count()
+
+try_meca = test_pivot %>%
+  unique() %>%
+  filter(general %in% c("Mecanique")) %>%
+  select(essai,YEAR,modalite_ercane,parcelle,general,date_intervention_mesure) %>% # dois-je différer par localisation?
+  group_by(across(-c(general,date_intervention_mesure))) %>%
+  count()
+
+try_meca = try_meca %>%
+  ungroup() %>%
+  filter(!(parcelle == "Bordures5L")) %>%
+  unique()
+
+try_manu = try_manu %>%
+  ungroup() %>%
+  unique()
+
+
+```
+
+# INTERVENTION CHIMIQUE
+
+```{r}
+test_inter = inter_matthias %>%
+  mutate(
+    modalite_ercane = case_when(
+      modalite_ercane %in% c("Toute la parcelle") ~ "All",
+      TRUE ~ modalite_ercane)) %>%
+  separate(modalite_ercane, c("P1","P2"),remove = FALSE) %>%
+  pivot_longer(cols = "P1":"P2",names_to = "modalite_ercane2",values_to = "modalite_ercane3") %>%
+ # filter(!(is.na(modalite_ercane) & modalite_ercane2 != "P1")) %>% 
+  filter(!(!is.na(modalite_ercane) & is.na(modalite_ercane3))) %>%
+  select(!c("modalite_ercane","modalite_ercane2")) %>%
+  rename(modalite_ercane = modalite_ercane3) %>%
+  filter(!modalite_ercane == "TE")
+
+# fixing empty cells
+test_inter = test_inter %>% mutate_all(na_if,"") %>%
+  na.omit()
+
+# prendre en compte les modalités all
+test_inter = test_inter %>%
+  mutate(
+    modalite_ercane = case_when(
+      modalite_ercane == "All" & YEAR == "2016_2017" & essai == "O.Fontaine" ~ "M1,M2,M3,TP",
+      modalite_ercane == "All" & YEAR == "2017_2018" & essai == "O.Fontaine" ~ "M1,M2,TP",
+      modalite_ercane == "All" & YEAR == "2018_2019" & essai == "O.Fontaine" ~ "M1,M2,TP",
+      modalite_ercane == "All" & YEAR == "2019_2020" & essai == "O.Fontaine" ~ "M1,M2,TP",
+      modalite_ercane == "All" & YEAR == "2017_2018" & essai == "P12" ~ "M1,M2,M3,M,TP",
+      modalite_ercane == "All" & YEAR == "2011_2012" & essai == "P25_LEG" ~ "M1,M2,M3,M4,M5,M6,M7,M8,M9,TP",
+      modalite_ercane == "All" & YEAR == "2015_2016" & essai == "P25_LEG" ~ "M1,M2,M3,M4,M5,M6,M7,M8,TP",
+      TRUE ~ modalite_ercane
+    )) %>%
+  separate(modalite_ercane, c("M1","M2","M3","M4","M5","M6","M7","M8","M9","M10"),remove = FALSE) %>%
+  pivot_longer(cols = "M1":"M10",names_to = "modalite_ercane2",values_to = "modalite_ercane3") %>%
+ # filter(!(is.na(modalite_ercane) & modalite_ercane2 != "M1")) %>% 
+  filter(!(!is.na(modalite_ercane) & is.na(modalite_ercane3))) %>%
+  select(!c("modalite_ercane","modalite_ercane2")) %>%
+  rename(modalite_ercane = modalite_ercane3)
+  
+test_inter = test_inter %>%
+  group_by(essai,YEAR,modalite_ercane) %>%
+  count() %>%
+  ungroup()
+
+
+manque_chimique = try2 %>% # contient des modalités en double car différente parcelle 
+  ungroup() %>%
+  filter(essai %in% c("P42") | (essai == "P25_ITK" & YEAR == "2015_2016")) %>%
+  group_by(across(c(-n))) %>%
+  summarize(n = sum(n)) %>%
+  ungroup()
+
+
+nb_chimique = test_inter %>%
+  full_join(manque_chimique) %>%
+  unique()
+```
+
+# INTERVENTION MECA/MANUELLE
+
+```{r}
+data_meca_manu = raw_inter_matthias2
+
+# pre processing
+data_meca_manu = raw_inter_matthias2 %>%
+  filter(!(parcelle == "bordures & chemins" | Type == "Rabattre la PDS sur l'IR ")) %>%
+  mutate(
+    Type = case_when(
+      Type %in% c("Patte d'oie","Sarclage mécanique ") ~ "Sarclage",
+      TRUE ~ Type
+    )) %>%
+  select(essai,YEAR,Intervention,Type,modalite_ercane,parcelle)
+
+# sub P for parcelle
+data_meca_manu$parcelle = sub('P','',data_meca_manu$parcelle)
+
+```
+
+
+
+```{r}
+# pivot modalité
+data_meca_manu = data_meca_manu %>%
+  mutate(
+    modalite_ercane = case_when(
+      modalite_ercane == "All" & YEAR == "2019_2020" & essai == "O.Fontaine" ~ "M1,M2",
+      modalite_ercane == "All" & YEAR == "2017_2018" & essai == "P12" ~ "M1,M2,M3,M4",
+      modalite_ercane == "All" & YEAR == "2019_2020" & essai == "P12" ~ "M1,M2,M3,M4",
+      modalite_ercane == "All" & YEAR == "2012_2013" & essai == "P25_ITK" ~ "M1,M2,M3,M4,M5,M6",
+      modalite_ercane == "All" & YEAR == "2014_2015" & essai == "P25_ITK" ~ "M1,M2,M3,M4,M5,M6",
+      modalite_ercane == "All" & YEAR == "2011_2012" & essai == "P25_LEG" ~ "M1,M2,M3,M4,M5,M6,M7,M8,M9",
+      modalite_ercane == "All" & YEAR == "2013_2014" & essai == "P25_LEG" ~ "M1,M2,M4,M5,M6,M7,M8,M9",
+      modalite_ercane == "All" & YEAR == "2015_2016" & essai == "P25_LEG" ~ "M1,M2,M3,M4,M5,M6,M7,M8",
+      modalite_ercane == "All" & YEAR == "2017_2018" & essai == "P25_montagne" ~ "M1,M2,M3",
+      modalite_ercane == "All" & YEAR == "2015_2016" & essai == "P41" ~ "M1,M2,M3,M4,M5,M6",
+      modalite_ercane == "All" & YEAR == "2016_2017" & essai == "P41" ~ "M1,M2,M3,M4,M5,M6",
+      modalite_ercane == "All" & YEAR == "2017_2018" & essai == "P41" ~ "M1,M2,M3,M4,M5,M6",
+      modalite_ercane == "All" & YEAR == "2018_2019" & essai == "P41" ~ "M1,M2,M3,M4,M5,M6",
+      TRUE ~ modalite_ercane)) %>%
+  separate(modalite_ercane, c("M1","M2","M3","M4","M5","M6","M7","M8","M9"),remove = FALSE) %>%
+  pivot_longer(cols = "M1":"M9",names_to = "modalite_ercane2",values_to = "modalite_ercane3") %>%
+ # filter(!(is.na(modalite_ercane) & modalite_ercane2 != "M1")) %>% 
+  filter(!(!is.na(modalite_ercane) & is.na(modalite_ercane3))) %>%
+  select(!c("modalite_ercane","modalite_ercane2")) %>%
+  rename(modalite_ercane = modalite_ercane3)
+
+```
+
+
+```{r}
+# tricks with join in order to replace "All" from parcelle and modalite with their details
+
+X = data_3_objectif %>%
+  select(essai,YEAR,modalite_ercane,parcelle)
+
+Y = data_meca_manu %>%
+  filter(parcelle == "All") %>%
+  select(essai,YEAR,modalite_ercane) %>%
+  unique() %>%
+  left_join(X)
+
+non_all = data_meca_manu %>%
+  filter(parcelle %!in% "All")
+
+all = data_meca_manu %>%
+  filter(parcelle == "All") %>%
+  select(-c(parcelle))
+
+Z = Y %>%
+  left_join(all) %>%
+  full_join(non_all)
+
+```
+
+```{r}
+# manque meca/manu
+try_meca = try_meca %>% # contient des modalités en double car différente parcelle 
+  ungroup() %>%
+  filter(essai %in% c("P42") | (essai == "P25_ITK" & YEAR == "2015_2016")) %>%
+  group_by(across(c(-n))) %>%
+  summarize(n = sum(n)) %>%
+  ungroup 
+try_manu = try_manu %>% # contient des modalités en double car différente parcelle 
+  ungroup() %>%
+  filter(essai %in% c("P42") | (essai == "P25_ITK" & YEAR == "2015_2016")) %>%
+  group_by(across(c(-n))) %>%
+  summarize(n = sum(n)) %>%
+  ungroup()
+
+# mecanique
+nb_meca = Z %>%
+  filter(Intervention == "Désherbage mécanique") %>%
+  group_by(essai,YEAR,modalite_ercane,parcelle) %>%
+  count() %>%
+  full_join(try_meca) %>%
+  group_by(across(c(-n))) %>%
+  summarize(nb_meca = sum(n)) %>%
+  ungroup()
+
+# manuel
+nb_manuel = Z %>%
+  filter(Intervention == "Désherbage manuel") %>%
+  group_by(essai,YEAR,modalite_ercane,parcelle) %>%
+  count() %>%
+  full_join(try_manu) %>%
+  group_by(across(c(-n))) %>%
+  summarize(nb_manu = sum(n)) %>%
+  ungroup()
+
+```
+
+```{r}
+write.xlsx(nb_meca,"old/nb_meca.xlsx")
+write.xlsx(nb_manuel,"old/nb_manu.xlsx")
+write.xlsx(nb_chimique,"old/nb_chimique.xlsx")
+
+```
+
